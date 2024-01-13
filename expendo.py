@@ -1,7 +1,6 @@
 from yandex_tracker_client import TrackerClient
-import re
 import datetime as dt
-from dateutil.rrule import rrule, DAILY, WEEKLY
+from dateutil.rrule import rrule, DAILY
 import math
 from functools import lru_cache
 import matplotlib.pyplot as plt
@@ -9,21 +8,16 @@ from matplotlib.dates import DateFormatter
 import configparser
 
 # g_project = "MT SystemeLogic(ACB)"  # Temporary, will be moved to argument parser
-g_project = "MT БМРЗ-60"  # Temporary, will be moved to argument parser
-
-
-# g_project = "MT Дуга-О3"  # Temporary, will be moved to argument parser
-
-cfg = dict()
+# g_project = "MT БМРЗ-60"  # Temporary, will be moved to argument parser
+g_project = "MT Дуга-О3"  # Temporary, will be moved to argument parser
 
 
 def read_config():
     config = configparser.ConfigParser()
     config.read('expendo.ini')
-    global cfg
-    cfg = config['DEFAULT']
-    assert 'token' in cfg
-    assert 'org' in cfg
+    assert 'token' in config['DEFAULT']
+    assert 'org' in config['DEFAULT']
+    return config['DEFAULT']
 
 
 def _get_iso_split(s, split):
@@ -241,6 +235,7 @@ def plot_summary(title: str, d: dict):
     fig.autofmt_xdate()
     plt.draw()
     plt.show(block=False)
+    return plt
 
 
 def plot_details(title: str, d: dict):
@@ -259,6 +254,7 @@ def plot_details(title: str, d: dict):
     fig.autofmt_xdate()
     plt.draw()
     plt.show(block=False)
+    return plt
 
 
 def tabulate_details(d: dict):
@@ -269,14 +265,15 @@ def tabulate_details(d: dict):
 
 
 def main():
+    cfg = read_config()
     client = TrackerClient(cfg['token'], cfg['org'])
     assert client.myself is not None
-    print('=' * 20)
+    print('Crawling tracker...')
     # tabulate_details(spent(stories(client, g_project), by_component=True))
     # tabulate_details(x := estimate(epics(client, g_project), by_component=True))
-    plot_details('Estimates', estimate(epics(client, g_project), by_component=False))
-    plot_details('Spent', spent(epics(client, g_project), by_component=False))
-    print('finished')
+    plt1 = plot_details('Estimates', estimate(epics(client, g_project), by_component=True))
+    plt2 = plot_details('Spends', spent(epics(client, g_project), by_component=True))
+    plt1.show()  # For IDE only
 
 
 if __name__ == '__main__':
