@@ -3,9 +3,14 @@ import datetime as dt
 from dateutil.rrule import rrule, DAILY
 import math
 from functools import lru_cache
+import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.dates import DateFormatter
 import configparser
+
+ByISSUE = 0
+ByCOMPONENT = 1
+ByQUEUE = 2
 
 # g_project = "MT SystemeLogic(ACB)"  # Temporary, will be moved to argument parser
 # g_project = "MT БМРЗ-60"  # Temporary, will be moved to argument parser
@@ -253,8 +258,6 @@ def plot_details(title: str, d: dict):
     plt.title(title)
     fig.autofmt_xdate()
     plt.draw()
-    plt.show(block=False)
-    return plt
 
 
 def tabulate_details(d: dict):
@@ -271,9 +274,12 @@ def main():
     print('Crawling tracker...')
     # tabulate_details(spent(stories(client, g_project), by_component=True))
     # tabulate_details(x := estimate(epics(client, g_project), by_component=True))
-    plt1 = plot_details('Estimates', estimate(epics(client, g_project), by_component=True))
-    plt2 = plot_details('Spends', spent(epics(client, g_project), by_component=True))
-    plt1.show()  # For IDE only
+    matplotlib.use('TkAgg')
+    plot_details('Estimates', estimate(epics(client, g_project), by_component=True))
+    plot_details('Spends', spent(epics(client, g_project), by_component=True))
+    # plt.ion()  # Turn on interactive plotting - not working, requires events loop for open plots
+    plt.show()
+    # input('Press any key...')  # for interactive mode
 
 
 if __name__ == '__main__':
