@@ -10,6 +10,7 @@ import configparser
 from alive_progress import alive_bar
 from natsort import natsorted
 
+
 ByISSUE = 0
 ByCOMPONENT = 1
 ByQUEUE = 2
