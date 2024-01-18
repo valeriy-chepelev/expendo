@@ -7,14 +7,12 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.dates import DateFormatter
 import configparser
+from alive_progress import alive_bar
+from natsort import natsorted
 
 ByISSUE = 0
 ByCOMPONENT = 1
 ByQUEUE = 2
-
-# g_project = "MT SystemeLogic(ACB)"  # Temporary, will be moved to argument parser
-# g_project = "MT БМРЗ-60"  # Temporary, will be moved to argument parser
-g_project = "MT Дуга-О3"  # Temporary, will be moved to argument parser
 
 
 def read_config():
@@ -108,9 +106,20 @@ def history_estimate(issues: list, by_component=False):
             for date in rrule(DAILY, dtstart=start_date, until=dt.datetime.now(dt.timezone.utc))}
 
 
-def components(issues: list):
-    """ Return list of components assigned to issues """
-    return sorted(list({comp.name for issue in issues for comp in issue.components}))
+def components(issues: list, w_bar=False):
+    """ Return list of components assigned to issues and all of its descendants """
+    comp = set()
+    if w_bar:
+        with alive_bar(len(issues), title='Components', theme='classic') as bar:
+            for issue in issues:
+                comp.update({comp.name for comp in issue.components})
+                comp.update(set(components(_get_linked(issue))))
+                bar()
+    else:
+        for issue in issues:
+            comp.update({comp.name for comp in issue.components})
+            comp.update(set(components(_get_linked(issue))))
+    return sorted(list(comp))
 
 
 @lru_cache(maxsize=None)  # Cashing access to YT
@@ -149,8 +158,8 @@ def issue_spent(issue, date, component='', default_comp=()):
         spends = _get_issue_times(issue)
         sp = next((s['value'] for s in spends
                    if s['kind'] == 'spent' and s['date'].date() <= date.date()), 0) + \
-            sum([issue_spent(linked, date, component, own_comp if len(own_comp) > 0 else default_comp)
-                 for linked in _get_linked(issue)])
+             sum([issue_spent(linked, date, component, own_comp if len(own_comp) > 0 else default_comp)
+                  for linked in _get_linked(issue)])
     return sp
 
 
@@ -166,56 +175,89 @@ def issue_estimate(issue, date, component='', default_comp=()):
             est = next((s['value'] for s in estimates
                         if s['kind'] == 'estimation' and s['date'].date() <= date.date()), 0)
         else:
-            est = sum([issue_estimate(linked, date, component, own_comp if len(own_comp) > 0 else default_comp)
+            est = sum([issue_estimate(linked, date, component, own_comp
+            if len(own_comp) > 0 else default_comp)
                        for linked in _get_linked(issue)])
     return est
 
 
-def spent(issues: list, by_component=False):
+def spent(issues: list, dates, by_component=False):
     """ Return issues summary spent daily timeline as dictionary of
     {date: {issue_key: spent[days]}} for the listed issues.
     If by_component requested, collect spent for issues components and return
     timeline {date: {component: spent[days]}}.
     Issue in list should be yandex tracker reference."""
+    all_components = components(issues, True)
     if by_component:
-        all_components = components(issues)
-        return {date.date(): {component: sum([issue_spent(issue, date, component)
-                                              for issue in issues]) // 8  # hours to days
-                              for component in all_components}
-                for date in rrule(DAILY, dtstart=get_start_date(issues),
-                                  until=dt.datetime.now(dt.timezone.utc))}
-    return {date.date(): {issue.key: issue_spent(issue, date) // 8  # hours to days
-                          for issue in issues}
-            for date in rrule(DAILY, dtstart=get_start_date(issues),
-                              until=dt.datetime.now(dt.timezone.utc))}
+        with alive_bar(len(issues) * len(all_components), title='Spends', theme='classic') as bar:
+            return {date.date(): {component: sum([issue_spent(issue, date, component)
+                                                  for issue in issues
+                                                  if bar() not in ['nothing']])
+                                  for component in all_components}
+                    for date in dates}
+    with alive_bar(len(issues), title='Spends', theme='classic') as bar:
+        return {date.date(): {issue.key: issue_spent(issue, date)
+                              for issue in issues
+                              if bar() not in ['nothing']}
+                for date in dates}
 
 
-def estimate(issues: list, by_component=False):
+def estimate(issues: list, dates, by_component=False):
     """ Return issues estimate daily timeline as dictionary of
     {date: {issue_key: estimate[days]}} for the listed issues.
     If by_component requested, collect estimates for issues components and return
     timeline {date: {component: estimate[days]}}.
     Issue in list should be yandex tracker reference."""
+    all_components = components(issues, True)
     if by_component:
-        all_components = components(issues)
-        return {date.date(): {component: sum([issue_estimate(issue, date, component)
-                                              for issue in issues]) // 8  # hours to days
-                              for component in all_components}
-                for date in rrule(DAILY, dtstart=get_start_date(issues),
-                                  until=dt.datetime.now(dt.timezone.utc))}
-    return {date.date(): {issue.key: issue_estimate(issue, date) // 8  # hours to days
-                          for issue in issues}
-            for date in rrule(DAILY, dtstart=get_start_date(issues),
-                              until=dt.datetime.now(dt.timezone.utc))}
+        with alive_bar(len(issues) * len(all_components), title='Estimates', theme='classic') as bar:
+            return {date.date(): {component: sum([issue_estimate(issue, date, component)
+                                                  for issue in issues
+                                                  if bar() not in ['nothing']])
+                                  for component in all_components}
+                    for date in dates}
+    with alive_bar(len(issues), title='Estimates', theme='classic') as bar:
+        return {date.date(): {issue.key: issue_estimate(issue, date)
+                              for issue in issues
+                              if bar() not in ['nothing']}
+                for date in dates}
 
 
 def get_start_date(issues: list):
     """ Return start date (first estimation date) of issues """
-    try:
-        return min([t[-1]['date'] for issue in issues
-                    if len(t := _get_issue_times(issue)) > 0])
-    except ValueError:
-        return dt.datetime.now(dt.timezone.utc)
+    with alive_bar(len(issues), title='Start date', theme='classic') as bar:
+        try:
+            d = min([t[-1]['date'] for issue in issues
+                     if (len(t := _get_issue_times(issue)) > 0) ^ (bar() in ['nothing'])])
+        except ValueError:
+            d = dt.datetime.now(dt.timezone.utc)
+    return d
+
+
+# Sprints info
+
+
+def issue_sprints(issue) -> list:
+    """ Return list of issue sprints, including all the subtasks,
+    according to the logs """
+    spr = {to[0].name for log in issue.changelog for field in log.fields
+           if field['field'].id == 'sprint'
+           and (to := field['to']) is not None
+           and len(to) > 0}
+    for linked in _get_linked(issue):
+        spr.update(issue_sprints(linked))
+    if (sc := issue.sprint) is not None and len(sc) > 0:
+        spr.add(sc[0].name)
+    return natsorted(list(spr))
+
+
+def sprints(issues: list) -> list:
+    """ Return list of sprints, where tasks was present, including all the subtasks,
+    according to the logs """
+    s = set()
+    for issue in issues:
+        s.update(set(issue_sprints(issue)))
+    return natsorted(list(s))
 
 
 # Data output routines
@@ -234,7 +276,7 @@ def plot_summary(title: str, d: dict):
     formatter = DateFormatter("%d.%m.%y")
     ax.xaxis.set_major_formatter(formatter)
     plt.xlabel('Date')
-    plt.ylabel('[days]')
+    plt.ylabel('[hours]')
     plt.grid()
     plt.title(title)
     fig.autofmt_xdate()
@@ -252,7 +294,7 @@ def plot_details(title: str, d: dict):
     formatter = DateFormatter("%d.%m.%y")
     ax.xaxis.set_major_formatter(formatter)
     plt.xlabel('Date')
-    plt.ylabel('[days]')
+    plt.ylabel('[hours]')
     plt.grid()
     plt.legend()
     plt.title(title)
@@ -267,19 +309,47 @@ def tabulate_details(d: dict):
         print(f'{date.strftime("%d.%m.%y")};{";".join(sval)};{sum(d[date].values())}')
 
 
+def scada_issues(client):
+    ep = ['MTPD-261', 'MTPD-259', 'MTPD-368', 'MTPD-408', 'MTPD-319', 'MTPD-369', 'MTPD-370']
+    return [client.issues[e] for e in ep]
+
+
+# g_project = "MT SystemeLogic(ACB)"  # Temporary, will be moved to argument parser
+# g_project = "MT БМРЗ-60"  # Temporary, will be moved to argument parser
+# g_project = "MT Дуга-О3"  # Temporary, will be moved to argument parser
+# g_project = "MT SW SCADA"  # Temporary, will be moved to argument parser
+# g_project = "MT 150cry"  # Temporary, will be moved to argument parser
+# g_project = "МТ M4Cry"  # Temporary, will be moved to argument parser
+# g_project = "МТ IP1810"  # Temporary, will be moved to argument parser
+# g_project = "Корпоративный профиль 61850"  # Temporary, will be moved to argument parser
+# g_project = "MT FastView"  # Temporary, will be moved to argument parser
+
+
 def main():
     cfg = read_config()
     client = TrackerClient(cfg['token'], cfg['org'])
     assert client.myself is not None
     print('Crawling tracker...')
-    # tabulate_details(spent(stories(client, g_project), by_component=True))
-    # tabulate_details(x := estimate(epics(client, g_project), by_component=True))
-    matplotlib.use('TkAgg')
-    plot_details('Estimates', estimate(epics(client, g_project), by_component=True))
-    plot_details('Spends', spent(epics(client, g_project), by_component=True))
+    # issues = epics(client, g_project)
+    issues = scada_issues(client)
+    start_date = get_start_date(issues)
+    final_date = dt.datetime.now(dt.timezone.utc)
+    dates = rrule(DAILY, dtstart=start_date, until=final_date)
+    today = [final_date]
+    est = estimate(issues,
+                   today,
+                   by_component=True)
+    """spt = spent(issues,
+                dates,
+                by_component=True)"""
+    tabulate_details(est)
+    # tabulate_details(spt)
+    # matplotlib.use('TkAgg')
+    # plot_details('Estimates', est)
+    # plot_details('Spends', spt)
     # plt.ion()  # Turn on interactive plotting - not working, requires events loop for open plots
-    plt.show()
-    # input('Press any key...')  # for interactive mode
+    # plt.show()
+    input('Press any key...')  # for interactive mode
 
 
 if __name__ == '__main__':
