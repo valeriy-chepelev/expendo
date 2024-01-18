@@ -265,9 +265,9 @@ def sprints(issues: list) -> list:
 
 
 def tabulate_summary(d: dict):
-    print('Date;Summary')
+    print('Date', 'Summary', sep='\t')
     for date in d.keys():
-        print(f'{date.strftime("%d.%m.%y")};{sum(d[date].values())}')
+        print(date.strftime("%d.%m.%y"), sum(d[date].values()), sep='\t')
 
 
 def plot_summary(title: str, d: dict):
@@ -304,10 +304,10 @@ def plot_details(title: str, d: dict):
 
 
 def tabulate_details(d: dict):
-    print(f'Date;{";".join(d[next(iter(d))].keys())};Summary')
+    print('Date', "\t".join(d[next(iter(d))].keys()), 'Summary', sep='\t')
     for date in d.keys():
-        sval = [str(val) for val in d[date].values()]
-        print(f'{date.strftime("%d.%m.%y")};{";".join(sval)};{sum(d[date].values())}')
+        sval = "\t".join([str(val) for val in d[date].values()])
+        print(date.strftime("%d.%m.%y"), sval, sum(d[date].values()), sep='\t')
 
 
 def scada_issues(client):
@@ -321,7 +321,7 @@ def scada_issues(client):
 # g_project = "MT SW SCADA"  # Temporary, will be moved to argument parser
 # g_project = "MT 150cry"  # Temporary, will be moved to argument parser
 # g_project = "МТ M4Cry"  # Temporary, will be moved to argument parser
-# g_project = "МТ IP1810"  # Temporary, will be moved to argument parser
+g_project = "МТ IP1810"  # Temporary, will be moved to argument parser
 # g_project = "Корпоративный профиль 61850"  # Temporary, will be moved to argument parser
 # g_project = "MT FastView"  # Temporary, will be moved to argument parser
 
@@ -331,14 +331,14 @@ def main():
     client = TrackerClient(cfg['token'], cfg['org'])
     assert client.myself is not None
     print('Crawling tracker...')
-    # issues = epics(client, g_project)
-    issues = scada_issues(client)
+    issues = epics(client, g_project)
+    # issues = scada_issues(client)
     start_date = get_start_date(issues)
     final_date = dt.datetime.now(dt.timezone.utc)
     dates = rrule(DAILY, dtstart=start_date, until=final_date)
     today = [final_date]
     est = estimate(issues,
-                   today,
+                   dates,
                    by_component=True)
     """spt = spent(issues,
                 dates,
