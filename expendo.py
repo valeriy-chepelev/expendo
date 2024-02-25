@@ -1,6 +1,6 @@
 from yandex_tracker_client import TrackerClient
 import datetime as dt
-from dateutil.rrule import rrule, DAILY
+from dateutil.rrule import rrule, DAILY, WEEKLY
 import math
 from functools import lru_cache
 import matplotlib
@@ -13,7 +13,14 @@ import argparse
 
 ByISSUE = 0
 ByCOMPONENT = 1
-ByQUEUE = 2
+
+"""
+CLI request variants
+expendo project [all] [COMPONENTS] [TODAY] [TABULATE]
+expendo project velocities EPICS WEEKLY PLOT
+expendo project spends STORIES [TODAY] [TABULATE]
+expendo (MTPD-01,MTPD-02) estimates [COMPONENTS] DAILY [TABULATE]
+"""
 
 
 def read_config(filename):
@@ -159,8 +166,8 @@ def issue_spent(issue, date, component='', default_comp=()):
         spends = _get_issue_times(issue)
         sp = next((s['value'] for s in spends
                    if s['kind'] == 'spent' and s['date'].date() <= date.date()), 0) + \
-             sum([issue_spent(linked, date, component, own_comp if len(own_comp) > 0 else default_comp)
-                  for linked in _get_linked(issue)])
+            sum([issue_spent(linked, date, component, own_comp if len(own_comp) > 0 else default_comp)
+                for linked in _get_linked(issue)])
     return sp
 
 
@@ -177,8 +184,8 @@ def issue_estimate(issue, date, component='', default_comp=()):
                         if s['kind'] == 'estimation' and s['date'].date() <= date.date()), 0)
         else:
             est = sum([issue_estimate(linked, date, component, own_comp
-            if len(own_comp) > 0 else default_comp)
-                       for linked in _get_linked(issue)])
+                       if len(own_comp) > 0 else default_comp)
+                      for linked in _get_linked(issue)])
     return est
 
 
