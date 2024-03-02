@@ -1,6 +1,8 @@
 from yandex_tracker_client import TrackerClient
+from yandex_tracker_client.exceptions import NotFound
 import datetime as dt
-from dateutil.rrule import rrule, DAILY, WEEKLY
+from dateutil.rrule import rrule, DAILY
+from dateutil.relativedelta import relativedelta
 import math
 from functools import lru_cache
 import matplotlib
@@ -10,17 +12,7 @@ import configparser
 from alive_progress import alive_bar
 from natsort import natsorted
 import argparse
-
-ByISSUE = 0
-ByCOMPONENT = 1
-
-"""
-CLI request variants
-expendo project [all] [COMPONENTS] [TODAY] [TABULATE]
-expendo project velocities EPICS WEEKLY PLOT
-expendo project spends STORIES [TODAY] [TABULATE]
-expendo (MTPD-01,MTPD-02) estimates [COMPONENTS] DAILY [TABULATE]
-"""
+from prettytable import PrettyTable
 
 
 def read_config(filename):
@@ -80,40 +72,6 @@ def stories(client, project):
             if (e := st.parent) is not None and e.type.key == 'epic']
 
 
-def history_estimate(issues: list, by_component=False):
-    """ Return historical issues estimates daily timeline as dictionary of
-    {date: {issue_key: estimate[days]}} for the listed issues.
-    If by_component requested, collect spent for issues components and return
-    timeline {date: {component: spent[days]}}.
-    Issue in list should be yandex tracker reference."""
-    keys = [issue.key for issue in issues]
-    estimates = [{'key': issue.key,
-                  'components': cashed_components(issue),
-                  'date': dt.datetime.strptime(log.updatedAt, '%Y-%m-%dT%H:%M:%S.%f%z'),
-                  'estimate': 0 if field['to'] is None else iso_days(field['to'])}
-                 for issue in issues for log in issue.changelog for field in log.fields
-                 if field['field'].id == 'estimation']
-    if len(estimates) == 0:
-        return {dt.datetime.now(dt.timezone.utc).date(): {key: 0 for key in keys}}
-    # sort by date reversed
-    estimates.sort(key=lambda d: d['date'], reverse=True)
-    # get first estimate date (in reverse sort it's a last value)
-    start_date = estimates[-1]['date']
-    # convert to 2-d table day-by day for different tickets
-    if by_component:
-        return {date.date(): {component: sum(
-            [next((e['estimate'] for e in estimates
-                   if e['key'] == key and e['date'].date() <= date.date() and
-                   component in e['components']), 0)
-             for key in keys])
-            for component in components(issues)}
-            for date in rrule(DAILY, dtstart=start_date, until=dt.datetime.now(dt.timezone.utc))}
-    return {date.date(): {key: next((e['estimate'] for e in estimates
-                                     if e['key'] == key and e['date'].date() <= date.date()), 0)
-                          for key in keys}
-            for date in rrule(DAILY, dtstart=start_date, until=dt.datetime.now(dt.timezone.utc))}
-
-
 def components(issues: list, w_bar=False):
     """ Return list of components assigned to issues and all of its descendants """
     comp = set()
@@ -136,6 +94,28 @@ def cashed_components(issue):
     return components([issue])
 
 
+def queues(issues: list, w_bar=False):
+    """ Return list of queues used by issues and all of its descendants """
+    q = set()
+    if w_bar:
+        with alive_bar(len(issues), title='Queues', theme='classic') as bar:
+            for issue in issues:
+                q.add(issue.queue.key)
+                q.update(set(queues(_get_linked(issue))))
+                bar()
+    else:
+        for issue in issues:
+            q.add(issue.queue.key)
+            q.update(set(queues(_get_linked(issue))))
+    return sorted(list(q))
+
+
+@lru_cache(maxsize=None)  # Cashing access to YT
+def cashed_queues(issue):
+    """ Return one issue queues """
+    return queues([issue])
+
+
 @lru_cache(maxsize=None)  # Cashing access to YT
 def _get_issue_times(issue):
     """ Return reverse-sorted list of issue spent and estimates """
@@ -156,83 +136,110 @@ def _get_linked(issue):
             dict(outward=link.type.inward, inward=link.type.outward)[link.direction] == 'Подзадача']
 
 
-def issue_spent(issue, date, component='', default_comp=()):
+def issue_spent(issue, date, mode, cat, default_comp=()):
     """ Return summary spent of issue (hours) including spent of all child issues,
     due to the date, containing specified component."""
-    own_comp = cashed_components(issue)
+    if mode == 'components':
+        own_cat = cashed_components(issue)
+    elif mode == 'queues':
+        own_cat = cashed_queues(issue)
+    else:
+        own_cat = list()
     sp = 0
-    if component == '' or component in own_comp or \
-            (len(own_comp) == 0 and component in default_comp):
+    if (cat == '' or cat in own_cat) or \
+            (mode not in ['components', 'queues']) or \
+            (len(own_cat) == 0 and cat in default_comp):
         spends = _get_issue_times(issue)
         sp = next((s['value'] for s in spends
                    if s['kind'] == 'spent' and s['date'].date() <= date.date()), 0) + \
-            sum([issue_spent(linked, date, component, own_comp if len(own_comp) > 0 else default_comp)
-                for linked in _get_linked(issue)])
+             sum([issue_spent(linked, date, mode, cat,
+                              own_cat if mode == 'components' and len(own_cat) > 0 \
+                                  else default_comp)
+                  for linked in _get_linked(issue)])
     return sp
 
 
-def issue_estimate(issue, date, component='', default_comp=()):
+def issue_estimate(issue, date, mode, cat, default_comp=()):
     """ Return estimate of issue (hours) as summary estimates of all child issues,
     for the date, containing specified component."""
-    own_comp = cashed_components(issue)
+    if mode == 'components':
+        own_cat = cashed_components(issue)
+    elif mode == 'queues':
+        own_cat = cashed_queues(issue)
+    else:
+        own_cat = list()
     est = 0
-    if component == '' or component in own_comp or \
-            (len(own_comp) == 0 and component in default_comp):
+    if (cat == '' or cat in own_cat) or \
+            (mode not in ['components', 'queues']) or \
+            (len(own_cat) == 0 and cat in default_comp):
         if len(_get_linked(issue)) == 0:
             estimates = _get_issue_times(issue)
             est = next((s['value'] for s in estimates
                         if s['kind'] == 'estimation' and s['date'].date() <= date.date()), 0)
         else:
-            est = sum([issue_estimate(linked, date, component, own_comp
-                       if len(own_comp) > 0 else default_comp)
-                      for linked in _get_linked(issue)])
+            est = sum([issue_estimate(linked, date, mode, cat,
+                                      own_cat if mode == 'components' and len(own_cat) > 0 \
+                                          else default_comp)
+                       for linked in _get_linked(issue)])
     return est
 
 
-def spent(issues: list, dates: list, by_component=False):
+def spent(issues: list, dates: list, mode):
     """ Return issues summary spent daily timeline as dictionary of
     {date: {issue_key: spent[days]}} for the listed issues.
     If by_component requested, collect spent for issues components and return
     timeline {date: {component: spent[days]}}.
     Issue in list should be yandex tracker reference."""
-    all_components = components(issues, True)
-    if by_component:
-        with alive_bar(len(issues) * len(all_components),
-                       title='Spends', theme='classic') as bar:
-            return {date.date(): {component: sum([issue_spent(issue, date, component)
-                                                  for issue in issues
-                                                  if bar() not in ['nothing']])
-                                  for component in all_components}
-                    for date in dates}
-    with alive_bar(len(issues),
+    if mode == 'queues':
+        cats = queues(issues, True)
+    elif mode == 'components':
+        cats = components(issues, True)
+    else:
+        cats = ['']
+    with alive_bar(len(issues) * len(cats),
                    title='Spends', theme='classic') as bar:
-        return {date.date(): {issue.key: issue_spent(issue, date)
-                              for issue in issues
-                              if bar() not in ['nothing']}
-                for date in dates}
+        if mode in ['queues', 'components']:
+            return {date.date(): {cat:
+                                      sum([issue_spent(issue, date, mode, cat)
+                                           for issue in issues
+                                           if bar() not in ['nothing']])
+                                  for cat in cats}
+                    for date in dates}
+        else:
+            return {date.date(): {issue.key:
+                                      issue_spent(issue, date, mode, '')
+                                  for issue in issues
+                                  if bar() not in ['nothing']}
+                    for date in dates}
 
 
-def estimate(issues: list, dates: list, by_component=False):
+def estimate(issues: list, dates: list, mode):
     """ Return issues estimate daily timeline as dictionary of
     {date: {issue_key: estimate[days]}} for the listed issues.
     If by_component requested, collect estimates for issues components and return
     timeline {date: {component: estimate[days]}}.
     Issue in list should be yandex tracker reference."""
-    all_components = components(issues, True)
-    if by_component:
-        with alive_bar(len(issues) * len(all_components),
-                       title='Estimates', theme='classic') as bar:
-            return {date.date(): {component: sum([issue_estimate(issue, date, component)
-                                                  for issue in issues
-                                                  if bar() not in ['nothing']])
-                                  for component in all_components}
-                    for date in dates}
-    with alive_bar(len(issues),
+    if mode == 'queues':
+        cats = queues(issues, True)
+    elif mode == 'components':
+        cats = components(issues, True)
+    else:
+        cats = ['']
+    with alive_bar(len(issues) * len(cats),
                    title='Estimates', theme='classic') as bar:
-        return {date.date(): {issue.key: issue_estimate(issue, date)
-                              for issue in issues
-                              if bar() not in ['nothing']}
-                for date in dates}
+        if mode in ['queues', 'components']:
+            return {date.date(): {cat:
+                                      sum([issue_estimate(issue, date, mode, cat)
+                                           for issue in issues
+                                           if bar() not in ['nothing']])
+                                  for cat in cats}
+                    for date in dates}
+        else:
+            return {date.date(): {issue.key:
+                                      issue_estimate(issue, date, mode, '')
+                                  for issue in issues
+                                  if bar() not in ['nothing']}
+                    for date in dates}
 
 
 def get_start_date(issues: list):
@@ -279,35 +286,25 @@ def sprints(issues: list) -> list:
 
 # Data output routines
 
-
-def tabulate_summary(d: dict):
-    print('Date', 'Summary', sep='\t')
-    for date in d.keys():
-        print(date.strftime("%d.%m.%y"), sum(d[date].values()), sep='\t')
-
-
-def plot_summary(title: str, d: dict):
+def plot_details(title: str, d: dict, trend):
     fig, ax = plt.subplots()
-    ax.plot([date for date in d.keys()],
-            [sum(d[date].values()) for date in d.keys()])
-    formatter = DateFormatter("%d.%m.%y")
-    ax.xaxis.set_major_formatter(formatter)
-    plt.xlabel('Date')
-    plt.ylabel('[hours]')
-    plt.grid()
-    plt.title(title)
-    fig.autofmt_xdate()
-    plt.draw()
-    plt.show(block=False)
-    return plt
-
-
-def plot_details(title: str, d: dict):
-    fig, ax = plt.subplots()
+    trend_color = 'k'
     for row in d[next(iter(d))].keys():
+        p = ax.plot([date for date in d.keys()],
+                    [d[date][row] for date in d.keys()],
+                    label=row)
+        if row == trend['name']:
+            trend_color = p[0].get_color()
+    if trend is not None:
         ax.plot([date for date in d.keys()],
-                [d[date][row] for date in d.keys()],
-                label=row)
+                [trend['mid'][1] + i * trend['mid'][0] for i in range(len(d))],
+                linestyle='dashed', color=trend_color, linewidth=1)
+        ax.plot([date for date in d.keys()],
+                [trend['min'][1] + i * trend['min'][0] for i in range(len(d))],
+                linestyle='dashed', color=trend_color, linewidth=1)
+        ax.plot([date for date in d.keys()],
+                [trend['max'][1] + i * trend['max'][0] for i in range(len(d))],
+                linestyle='dashed', color=trend_color, linewidth=1)
     formatter = DateFormatter("%d.%m.%y")
     ax.xaxis.set_major_formatter(formatter)
     plt.xlabel('Date')
@@ -320,10 +317,69 @@ def plot_details(title: str, d: dict):
 
 
 def tabulate_details(d: dict):
-    print('Date', "\t".join(d[next(iter(d))].keys()), 'Summary', sep='\t')
+    table = PrettyTable()
+    sk = [key for key in d[next(iter(d))].keys()]
+    table.field_names = ['Date', *sk, 'Summary']
     for date in d.keys():
-        sval = "\t".join([str(val) for val in d[date].values()])
-        print(date.strftime("%d.%m.%y"), sval, sum(d[date].values()), sep='\t')
+        sv = [str(val) for val in d[date].values()]
+        table.add_row([date.strftime("%d.%m.%y"), *sv, sum(d[date].values())])
+    table.align = 'r'
+    print(table)
+
+
+def tabulate_csv(d: dict):
+    print('Date', ",".join(d[next(iter(d))].keys()), 'Summary', sep=',')
+    for date in d.keys():
+        sval = ",".join([str(val) for val in d[date].values()])
+        print(date.strftime("%d.%m.%y"), sval, sum(d[date].values()), sep=',')
+
+
+# Trends
+
+
+def linreg(X, Y):
+    """
+    return a,b in solution to y = ax + b such that root mean square distance between trend line and original points is minimized
+    """
+    N = len(X)
+    Sx = Sy = Sxx = Syy = Sxy = 0.0
+    for x, y in zip(X, Y):
+        Sx = Sx + x
+        Sy = Sy + y
+        Sxx = Sxx + x * x
+        Syy = Syy + y * y
+        Sxy = Sxy + x * y
+    det = Sxx * N - Sx * Sx
+    return (Sxy * N - Sy * Sx) / det, (Sxx * Sy - Sx * Sxy) / det
+
+
+def trends(d, row):
+    """ Calculate linear regression factors of data row.
+    row is name of data row
+    return tuple (a,b) for y(x)=ax+b
+    count x as date index, zero-based"""
+    if row not in [key for key in d[next(iter(d))].keys()]:
+        raise Exception(f'"{row}" not present in data.')
+    if len(d.keys()) < 2:
+        raise Excepton("Can't calculate trends based single value.")
+    # calculate data regression
+    original = [d[date][row] for date in d.keys()]
+    midc = linreg(range(len(d)), original)  # middle linear regression a,b
+    midval = [midc[0] * i + midc[1] for i in range(len(d))]  # middle data row
+    # calculate high regression
+    maxval = [(i, val[1]) for i, val in enumerate(zip(midval, original))
+              if val[1] > val[0]]  # get (index, value) for values higher middle
+    assert len(maxval) > 1
+    maxc = linreg(*list(zip(*maxval)))
+    # calculate low regression
+    minval = [(i, val[1]) for i, val in enumerate(zip(midval, original))
+              if val[1] < val[0]]  # get (index, value) for values lower middle
+    assert len(minval) > 1
+    minc = linreg(*list(zip(*minval)))
+    return {'name': row,
+            'mid': midc,
+            'min': (min(midc[0], minc[0]), minc[1]),
+            'max': (max(midc[0], maxc[0]), maxc[1])}
 
 
 def some_issues(client, keys: list):
@@ -334,9 +390,7 @@ def some_issues(client, keys: list):
 # g_project = "MT БМРЗ-60"  # Temporary, will be moved to argument parser
 # g_project = "MT Дуга-О3"  # Temporary, will be moved to argument parser
 # g_project = "MT SW SCADA"  # Temporary, will be moved to argument parser
-g_project = "MT 150cry"  # Temporary, will be moved to argument parser
-
-
+# g_project = "MT 150cry"  # Temporary, will be moved to argument parser
 # g_project = "МТ M4Cry"  # Temporary, will be moved to argument parser
 # g_project = "МТ IP1810"  # Temporary, will be moved to argument parser
 # g_project = "Корпоративный профиль 61850"  # Temporary, will be moved to argument parser
@@ -361,51 +415,95 @@ def define_parser():
                         help='value grouping criteria')
     parser.add_argument('output', choices=['dump', 'plot', 'csv'],
                         help='output fromat')
-    parser.add_argument('timespan', choices=['today', 'week', 'sprint', 'month', 'all'],
+    parser.add_argument('timespan', choices=['today', 'week', 'sprint', 'month', 'quarter', 'all'],
                         help='calculation time range')
-
     return parser
 
 
 def get_scope(client, args):
-    pass
+    """Return list of scoped issue objects."""
+    if args.scope in [p.name for p in client.projects]:
+        if args.grouping == stories:
+            return stories(client, args.scope)
+        return epics(client, args.scope)
+    try:
+        issues = [client.issues[k] for k in str(args.scope).split(',')]
+    except NotFound:
+        raise Exception(f'"{args.scope}" contain unknown task(s).')
+    return issues
 
 
-def get_dates(client, args):
-    pass
+def get_dates(issues, args, sprint_days=14) -> list:
+    """Return list of dates of interes, according to args."""
+    today = dt.datetime.now(dt.timezone.utc)
+    if args.timespan == 'today':
+        return [today]
+    elif args.timespan == 'week':
+        start_date = today + relativedelta(weeks=-1)
+    elif args.timespan == 'month':
+        start_date = today + relativedelta(months=-1)
+    elif args.timespan == 'quarter':
+        start_date = today + relativedelta(months=-3)
+    elif args.timespan == 'sprint':
+        start_date = today + relativedelta(days=-sprint_days)
+    else:
+        start_date = get_start_date(issues)
+    return list(rrule(DAILY, dtstart=start_date, until=today))
+
+
+def output(args, caption, data, trend=None):
+    if args.output == 'plot':
+        plot_details(caption, data, trend)
+    elif args.output == 'dump':
+        tabulate_details(data)
+    else:
+        tabulate_csv(data)
+    if trend is not None:
+        print(
+            f'{trend["name"]} {caption.lower()} average velocity {trend["mid"][0]:.1f} hrs/day, {5 * trend["mid"][0] / 8:.1f} days/week.')
+        middays = math.ceil(-trend['mid'][1] / trend['mid'][0])  # x(0) = -b/a for y(x)=ax+b
+        mindays = math.ceil(-trend['min'][1] / trend['min'][0])  # x(0) = -b/a for y(x)=ax+b
+        maxdays = math.ceil(-trend['max'][1] / trend['max'][0])  # x(0) = -b/a for y(x)=ax+b
+        dates = [next(iter(data)) + relativedelta(days=mindays),
+                 next(iter(data)) + relativedelta(days=middays),
+                 next(iter(data)) + relativedelta(days=maxdays)]
+        dates.sort()
+        print(f'Projected {trend["name"]} zero-{caption.lower()} date:')
+        table = PrettyTable()
+        table.field_names = ['Early', 'Average', 'Lately']
+        table.add_row([d.strftime("%d.%m.%y") for d in dates])
+        print(table)
+
+
+def dev():
+    cfg = read_config('expendo.ini')
+    client = TrackerClient(cfg['token'], cfg['org'])
+    assert client.myself is not None
+    print(queues(some_issues(client, ['MTPD-284'])))
 
 
 def main():
-    cfg = read_config()
+    cfg = read_config('expendo.ini')
     client = TrackerClient(cfg['token'], cfg['org'])
     if client.myself is None:
         raise Exception('Unable to connect to Yandex Tracker.')
     args = define_parser().parse_args()  # get CLI arguments
+    print(f'Crawling tracker "{args.scope}"...')
     issues = get_scope(client, args)  # get issues objects
-    dates = get_dates(client, args)  # get issues objects
-
-    print(f'Crawling tracker "{g_project}"...')
-    issues = epics(client, g_project)
-    # issues = some_issues(client,['MTHW-894'])
-    # print(sprints(issues))
-    start_date = get_start_date(issues)
-    final_date = dt.datetime.now(dt.timezone.utc)
-    dates = list(rrule(DAILY, dtstart=start_date, until=final_date))
-    # today = [final_date]
-    est = estimate(issues,
-                   dates,
-                   by_component=True)
-    spt = spent(issues,
-                dates,
-                by_component=True)
-    # tabulate_details(est)
-    # tabulate_details(spt)
+    dates = get_dates(issues, args)  # get date range
     matplotlib.use('TkAgg')
-    plot_details('Estimates', est)
-    plot_details('Spends', spt)
+    if args.parameter in ['estimate', 'all']:
+        est = estimate(issues, dates, args.grouping)
+        tr = trends(est, 'Firmware')
+        output(args, 'Estimates', est, tr)  # trend temporary debug
+    if args.parameter in ['spent', 'all']:
+        spt = spent(issues, dates, args.grouping)
+        output(args, 'Spends', spt)
     # plt.ion()  # Turn on interactive plotting - not working, requires events loop for open plots
+    if args.output == 'plot':
+        print('Close plot widget(s) to continue...')
     plt.show()
-    input('Press any key...')  # for interactive mode
+    input('Press any key to close...')  # for interactive mode
 
 
 if __name__ == '__main__':
