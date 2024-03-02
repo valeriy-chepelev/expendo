@@ -196,7 +196,7 @@ def spent(issues: list, dates: list, mode):
         cats = components(issues, True)
     else:
         cats = ['']
-    with alive_bar(len(issues) * len(cats),
+    with alive_bar(len(issues) * len(cats) * len(dates),
                    title='Spends', theme='classic') as bar:
         if mode in ['queues', 'components']:
             return {date.date(): {cat:
@@ -225,7 +225,7 @@ def estimate(issues: list, dates: list, mode):
         cats = components(issues, True)
     else:
         cats = ['']
-    with alive_bar(len(issues) * len(cats),
+    with alive_bar(len(issues) * len(cats) * len(dates),
                    title='Estimates', theme='classic') as bar:
         if mode in ['queues', 'components']:
             return {date.date(): {cat:
@@ -296,13 +296,16 @@ def plot_details(title: str, d: dict, trend):
         if row == trend['name']:
             trend_color = p[0].get_color()
     if trend is not None:
-        ax.plot([date for date in d.keys()],
+        dates = list(rrule(DAILY,
+                           dtstart=trend['start'],
+                           until=dt.datetime.now()))
+        ax.plot(dates,
                 [trend['mid'][1] + i * trend['mid'][0] for i in range(len(d))],
                 linestyle='dashed', color=trend_color, linewidth=1)
-        ax.plot([date for date in d.keys()],
+        ax.plot(dates,
                 [trend['min'][1] + i * trend['min'][0] for i in range(len(d))],
                 linestyle='dashed', color=trend_color, linewidth=1)
-        ax.plot([date for date in d.keys()],
+        ax.plot(dates,
                 [trend['max'][1] + i * trend['max'][0] for i in range(len(d))],
                 linestyle='dashed', color=trend_color, linewidth=1)
     formatter = DateFormatter("%d.%m.%y")
@@ -353,7 +356,7 @@ def linreg(X, Y):
     return (Sxy * N - Sy * Sx) / det, (Sxx * Sy - Sx * Sxy) / det
 
 
-def trends(d, row):
+def trends(d, row, start=None):
     """ Calculate linear regression factors of data row.
     row is name of data row
     return tuple (a,b) for y(x)=ax+b
@@ -362,10 +365,12 @@ def trends(d, row):
         raise Exception(f'"{row}" not present in data.')
     if len(d.keys()) < 2:
         raise Excepton("Can't calculate trends based single value.")
+    # redefine date range
+    dates = [date for date in d.keys() if start is None or not (date < start)]
     # calculate data regression
-    original = [d[date][row] for date in d.keys()]
-    midc = linreg(range(len(d)), original)  # middle linear regression a,b
-    midval = [midc[0] * i + midc[1] for i in range(len(d))]  # middle data row
+    original = [d[date][row] for date in dates]
+    midc = linreg(range(len(original)), original)  # middle linear regression a,b
+    midval = [midc[0] * i + midc[1] for i in range(len(original))]  # middle data row
     # calculate high regression
     maxval = [(i, val[1]) for i, val in enumerate(zip(midval, original))
               if val[1] > val[0]]  # get (index, value) for values higher middle
@@ -377,6 +382,7 @@ def trends(d, row):
     assert len(minval) > 1
     minc = linreg(*list(zip(*minval)))
     return {'name': row,
+            'start': next(iter(d)) if start is None else start,
             'mid': midc,
             'min': (min(midc[0], minc[0]), minc[1]),
             'max': (max(midc[0], maxc[0]), maxc[1])}
@@ -434,7 +440,7 @@ def get_scope(client, args):
 
 
 def get_dates(issues, args, sprint_days=14) -> list:
-    """Return list of dates of interes, according to args."""
+    """Return list of dates of interest, according to args."""
     today = dt.datetime.now(dt.timezone.utc)
     if args.timespan == 'today':
         return [today]
@@ -475,11 +481,49 @@ def output(args, caption, data, trend=None):
         print(table)
 
 
-def dev():
-    cfg = read_config('expendo.ini')
-    client = TrackerClient(cfg['token'], cfg['org'])
-    assert client.myself is not None
-    print(queues(some_issues(client, ['MTPD-284'])))
+def dev(est):
+    today = dt.datetime.now(dt.timezone.utc)
+    dates = list(rrule(DAILY,
+                       dtstart=today + relativedelta(months=-3),
+                       until=today + relativedelta(weeks=-1)))
+    fin = [(tr := trends(est, 'Firmware', date))['start'] +
+           relativedelta(days=math.ceil(-tr['mid'][1] / tr['mid'][0])) for date in dates]
+    fig, ax = plt.subplots()
+    p = ax.plot(dates,fin)
+    formatter = DateFormatter("%d.%m.%y")
+    ax.xaxis.set_major_formatter(formatter)
+    ax.yaxis.set_major_formatter(formatter)
+    plt.xlabel('Date')
+    plt.ylabel('Date')
+    plt.grid()
+    plt.draw()
+
+
+
+def precashe(issues, with_bar=False):
+    """ Execute calls to all cashed functions"""
+    if with_bar:
+        with alive_bar(3 * len(issues), title='Cashing', theme='classic') as bar:
+            for issue in issues:
+                cashed_queues(issue)
+                bar()
+                cashed_components(issue)
+                bar()
+                if len(_get_linked(issue)) == 0:
+                    issue_sprints(issue)
+                    _get_issue_times(issue)
+                else:
+                    precashe(_get_linked(issue))
+                bar()
+    else:
+        for issue in issues:
+            cashed_queues(issue)
+            cashed_components(issue)
+            if len(_get_linked(issue)) == 0:
+                issue_sprints(issue)
+                _get_issue_times(issue)
+            else:
+                precashe(_get_linked(issue))
 
 
 def main():
@@ -490,6 +534,7 @@ def main():
     args = define_parser().parse_args()  # get CLI arguments
     print(f'Crawling tracker "{args.scope}"...')
     issues = get_scope(client, args)  # get issues objects
+    precashe(issues, True)
     dates = get_dates(issues, args)  # get date range
     matplotlib.use('TkAgg')
     if args.parameter in ['estimate', 'all']:
@@ -500,6 +545,7 @@ def main():
         spt = spent(issues, dates, args.grouping)
         output(args, 'Spends', spt)
     # plt.ion()  # Turn on interactive plotting - not working, requires events loop for open plots
+    dev(est)
     if args.output == 'plot':
         print('Close plot widget(s) to continue...')
     plt.show()
