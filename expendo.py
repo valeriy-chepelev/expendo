@@ -260,6 +260,7 @@ def get_start_date(issues: list):
 def issue_sprints(issue) -> list:
     """ Return list of issue sprints, including all the subtasks,
     according to the logs """
+    #TODO: get full sprints info including dates
     spr = {sc[0].name} if (sc := issue.sprint) is not None and len(sc) > 0 else set()
     for log in issue.changelog:
         for field in log.fields:
@@ -283,6 +284,11 @@ def sprints(issues: list) -> list:
             bar()
     return natsorted(list(s))
 
+def sprint_info(client):
+    table = PrettyTable()
+    for s in client.sprints:
+        table.add_row([s.name, s.startDate, s.startDateTime])
+    print(table)
 
 # Data output routines
 
@@ -293,20 +299,20 @@ def plot_details(title: str, d: dict, trend):
         p = ax.plot([date for date in d.keys()],
                     [d[date][row] for date in d.keys()],
                     label=row)
-        if row == trend['name']:
+        if trend is not None and row == trend['name']:
             trend_color = p[0].get_color()
     if trend is not None:
         dates = list(rrule(DAILY,
                            dtstart=trend['start'],
-                           until=dt.datetime.now()))
+                           until=trend['end']))
         ax.plot(dates,
-                [trend['mid'][1] + i * trend['mid'][0] for i in range(len(d))],
+                [trend['mid'][1] + i * trend['mid'][0] for i in range(len(dates))],
                 linestyle='dashed', color=trend_color, linewidth=1)
         ax.plot(dates,
-                [trend['min'][1] + i * trend['min'][0] for i in range(len(d))],
+                [trend['min'][1] + i * trend['min'][0] for i in range(len(dates))],
                 linestyle='dashed', color=trend_color, linewidth=1)
         ax.plot(dates,
-                [trend['max'][1] + i * trend['max'][0] for i in range(len(d))],
+                [trend['max'][1] + i * trend['max'][0] for i in range(len(dates))],
                 linestyle='dashed', color=trend_color, linewidth=1)
     formatter = DateFormatter("%d.%m.%y")
     ax.xaxis.set_major_formatter(formatter)
@@ -365,8 +371,8 @@ def trends(d, row, start=None):
         raise Exception(f'"{row}" not present in data.')
     if len(d.keys()) < 2:
         raise Excepton("Can't calculate trends based single value.")
-    # redefine date range
-    dates = [date for date in d.keys() if start is None or not (date < start)]
+    # TODO: redefine date range
+    dates = [date for date in d.keys() if start is None or not (date < start.date())]
     # calculate data regression
     original = [d[date][row] for date in dates]
     midc = linreg(range(len(original)), original)  # middle linear regression a,b
@@ -381,8 +387,10 @@ def trends(d, row, start=None):
               if val[1] < val[0]]  # get (index, value) for values lower middle
     assert len(minval) > 1
     minc = linreg(*list(zip(*minval)))
+    # return with fixed angles
     return {'name': row,
-            'start': next(iter(d)) if start is None else start,
+            'start': dates[0],
+            'end': dates[-1],
             'mid': midc,
             'min': (min(midc[0], minc[0]), minc[1]),
             'max': (max(midc[0], maxc[0]), maxc[1])}
@@ -481,20 +489,28 @@ def output(args, caption, data, trend=None):
         print(table)
 
 
-def dev(est):
+def trend_funnel(est):
     today = dt.datetime.now(dt.timezone.utc)
     dates = list(rrule(DAILY,
                        dtstart=today + relativedelta(months=-3),
                        until=today + relativedelta(weeks=-1)))
-    fin = [(tr := trends(est, 'Firmware', date))['start'] +
-           relativedelta(days=math.ceil(-tr['mid'][1] / tr['mid'][0])) for date in dates]
+    mind = list()
+    midd = list()
+    maxd = list()
+    for date in dates:
+        tr = trends(est, 'Firmware', date)
+        midd.append(tr['start'] + relativedelta(days=math.ceil(-tr['mid'][1] / tr['mid'][0])))
+        mind.append(tr['start'] + relativedelta(days=math.ceil(-tr['min'][1] / tr['min'][0])))
+        maxd.append(tr['start'] + relativedelta(days=math.ceil(-tr['max'][1] / tr['max'][0])))
     fig, ax = plt.subplots()
-    p = ax.plot(dates,fin)
+    ax.plot(dates, midd, color='k', linewidth=1)
+    ax.plot(dates, mind, linestyle='dashed', color='k', linewidth=1)
+    ax.plot(dates, maxd, linestyle='dashed', color='k', linewidth=1)
     formatter = DateFormatter("%d.%m.%y")
     ax.xaxis.set_major_formatter(formatter)
     ax.yaxis.set_major_formatter(formatter)
-    plt.xlabel('Date')
-    plt.ylabel('Date')
+    plt.xlabel('Prediction start')
+    plt.ylabel('Finish date')
     plt.grid()
     plt.draw()
 
@@ -530,7 +546,7 @@ def main():
     cfg = read_config('expendo.ini')
     client = TrackerClient(cfg['token'], cfg['org'])
     if client.myself is None:
-        raise Exception('Unable to connect to Yandex Tracker.')
+        raise Exception('Unable to connect Yandex Tracker.')
     args = define_parser().parse_args()  # get CLI arguments
     print(f'Crawling tracker "{args.scope}"...')
     issues = get_scope(client, args)  # get issues objects
@@ -545,7 +561,6 @@ def main():
         spt = spent(issues, dates, args.grouping)
         output(args, 'Spends', spt)
     # plt.ion()  # Turn on interactive plotting - not working, requires events loop for open plots
-    dev(est)
     if args.output == 'plot':
         print('Close plot widget(s) to continue...')
     plt.show()
