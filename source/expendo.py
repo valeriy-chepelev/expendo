@@ -182,7 +182,7 @@ def output(args, caption, data, trend=None):
 def trend_funnel(est):
     today = dt.datetime.now(dt.timezone.utc)
     if (today.date() - next(iter(est))).days < 7:
-        raise Exception('Not enough data for prediction (at least 7 days required).')
+        raise Exception('Not enough data for prediction (at least 7 days retro required).')
     dates = list(rrule(DAILY,
                        dtstart=next(iter(est)),
                        until=(today + relativedelta(weeks=-1)).date()))
@@ -199,8 +199,8 @@ def trend_funnel(est):
     formatter = DateFormatter("%d.%m.%y")
     # ax.xaxis.set_major_formatter(formatter)
     ax.yaxis.set_major_formatter(formatter)
-    plt.xlabel('Prediction range, days')
-    plt.ylabel('Finish date')
+    plt.xlabel('Retro range, days')
+    plt.title('Firmware finish date')
     plt.grid()
     plt.draw()
 
