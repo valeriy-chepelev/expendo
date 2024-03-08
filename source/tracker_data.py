@@ -293,12 +293,48 @@ def sprints(issues: list) -> list:
     return sorted(list(s))
 
 
-def issue_velocity(issue, mode, cat, def_comp):
+def issue_velocity(issue, mode, cat, default_comp=()):
     # DRAFT: get issue sprint velocity
-    # check issue is closed task or closed bug
-    sprint_dates = issue_sprints(issue)
-    first_sprint = sprint_dates[0]
-    initial_estimate = issue_estimate(issue, first_sprint, mode, cat, def_comp)  # maybe need next day
-    burn = {date: initial_estimate / len(sprint_dates) for date in sprint_dates}
-    # Otherwise browse linked issues
-    return dict(Counter(burn) + Counter(burn))
+    if mode == 'components':
+        own_cat = cashed_components(issue)
+    elif mode == 'queues':
+        own_cat = cashed_queues(issue)
+    else:
+        own_cat = list()
+    counter = Counter()
+    if (cat == '' or cat in own_cat) or \
+            (mode not in ['components', 'queues']) or \
+            (len(own_cat) == 0 and cat in default_comp):
+        if len(_get_linked(issue)) == 0:  # TODO: check issue is closed task or closed bug
+            sprint_dates = issue_sprints(issue)
+            estimates = _get_issue_times(issue)
+            first_est = next((s['value'] for s in estimates
+                              if s['kind'] == 'estimation' and s['date'].date() <= sprint_dates[0]),
+                             0)  # maybe need next day
+            issue_burn = {date: first_est / len(sprint_dates) for date in sprint_dates}
+            counter.update(Counter(issue_burn))
+        else:
+            for linked in _get_linked(issue):
+                issue_burn = issue_velocity(linked, mode, cat,
+                                            own_cat if mode == 'components' and len(own_cat) > 0 \
+                                                else default_comp)
+                counter.update(Counter(issue_burn))
+    return dict(counter)
+
+
+def velocity(issues: list, mode):
+    if mode == 'queues':
+        cats = queues(issues, True)
+    elif mode == 'components':
+        cats = components(issues, True)
+    else:
+        cats = ['']
+    with alive_bar(len(issues) * len(cats),
+                   title='Velocity', theme='classic') as bar:
+        if mode in ['queues', 'components']:
+            return {cat: sum([issue_velocity(issue, mode, cat)  # TODO: need summ of Counters
+                              for issue in issues if bar() not in ['nothing']])
+                    for cat in cats}
+        else:
+            return {issue.key: issue_velocity(issue, mode, '')
+                    for issue in issues if bar() not in ['nothing']}

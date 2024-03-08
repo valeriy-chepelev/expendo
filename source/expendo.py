@@ -39,7 +39,7 @@ def plot_details(title: str, d: dict, trend):
     fig, ax = plt.subplots()
     trend_color = 'k'
     for row in d[next(iter(d))].keys():
-        p = ax.plot([date for date in d.keys()],
+        p = ax.plot(list(d.keys()),
                     [d[date][row] for date in d.keys()],
                     label=row)
         if trend is not None and row == trend['name']:
@@ -61,6 +61,23 @@ def plot_details(title: str, d: dict, trend):
     ax.xaxis.set_major_formatter(formatter)
     plt.xlabel('Date')
     plt.ylabel('[hours]')
+    plt.grid()
+    plt.legend()
+    plt.title(title)
+    fig.autofmt_xdate()
+    plt.draw()
+
+
+def plot_velocity(title: str, d: dict):
+    fig, ax = plt.subplots()
+    for row in iter(d):
+        ax.plot(list(d[row].keys()),
+                list(d[row].values()),
+                label=row, marker='.')
+    formatter = DateFormatter("%d.%m.%y")
+    ax.xaxis.set_major_formatter(formatter)
+    plt.xlabel('Date')
+    plt.ylabel('[hours/sprint]')
     plt.grid()
     plt.legend()
     plt.title(title)
