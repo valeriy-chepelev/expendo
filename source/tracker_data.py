@@ -1,9 +1,8 @@
 import datetime as dt
 import math
 from functools import lru_cache
-
 from alive_progress import alive_bar
-from natsort import natsorted
+from collections import Counter
 
 
 def _get_iso_split(s, split):
@@ -266,18 +265,21 @@ def get_start_date(issues: list):
 def issue_sprints(issue) -> list:
     """ Return list of issue sprints, including all the subtasks,
     according to the logs """
-    # TODO: get full sprints info including dates
-    spr = {sc[0].name} if (sc := issue.sprint) is not None and len(sc) > 0 else set()
+
+    def fdate(s: str):
+        return dt.datetime.strptime(s, '%Y-%m-%d').date()
+
+    spr = {fdate(sc[0].startDate)} if (sc := issue.sprint) is not None and len(sc) > 0 else set()
     for log in issue.changelog:
         for field in log.fields:
             if field['field'].id == 'sprint':
                 if (to := field['to']) is not None and len(to) > 0:
-                    spr.add(to[0].name)
+                    spr.add(fdate(to[0].startDate))
                 if (fr := field['from']) is not None and len(fr) > 0:
-                    spr.add(fr[0].name)
+                    spr.add(fdate(fr[0].startDate))
     for linked in _get_linked(issue):
         spr.update(issue_sprints(linked))
-    return natsorted(list(spr))
+    return sorted(list(spr))
 
 
 def sprints(issues: list) -> list:
@@ -288,4 +290,15 @@ def sprints(issues: list) -> list:
         for issue in issues:
             s.update(set(issue_sprints(issue)))
             bar()
-    return natsorted(list(s))
+    return sorted(list(s))
+
+
+def issue_velocity(issue, mode, cat, def_comp):
+    # DRAFT: get issue sprint velocity
+    # check issue is closed task or closed bug
+    sprint_dates = issue_sprints(issue)
+    first_sprint = sprint_dates[0]
+    initial_estimate = issue_estimate(issue, first_sprint, mode, cat, def_comp)  # maybe need next day
+    burn = {date: initial_estimate / len(sprint_dates) for date in sprint_dates}
+    # Otherwise browse linked issues
+    return dict(Counter(burn) + Counter(burn))

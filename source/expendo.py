@@ -4,17 +4,15 @@ import datetime as dt
 from dateutil.rrule import rrule, DAILY
 from dateutil.relativedelta import relativedelta
 import math
-from functools import lru_cache
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.dates import DateFormatter
 import configparser
-from alive_progress import alive_bar
-from natsort import natsorted
 import argparse
 from prettytable import PrettyTable
 
-from tracker_data import epics, stories, get_start_date, estimate, spent, precashe
+from tracker_data import epics, stories, get_start_date, estimate, spent, precashe, sprints
+from prediction import trends
 
 
 def read_config(filename):
@@ -31,7 +29,7 @@ def read_config(filename):
 def sprint_info(client):
     table = PrettyTable()
     for s in client.sprints:
-        table.add_row([s.name, s.startDate, s.startDateTime])
+        table.add_row([s.name, dt.datetime.strptime(s.startDate, '%Y-%m-%d').date()])
     print(table)
 
 
@@ -88,59 +86,6 @@ def tabulate_csv(d: dict):
         print(date.strftime("%d.%m.%y"), sval, sum(d[date].values()), sep=',')
 
 
-# Trends
-
-
-def linreg(X, Y):
-    """
-    return a,b in solution to y = ax + b such that root-mean-square distance between trend line and original points is minimized
-    """
-    N = len(X)
-    Sx = Sy = Sxx = Syy = Sxy = 0.0
-    for x, y in zip(X, Y):
-        Sx = Sx + x
-        Sy = Sy + y
-        Sxx = Sxx + x * x
-        Syy = Syy + y * y
-        Sxy = Sxy + x * y
-    det = Sxx * N - Sx * Sx
-    return (Sxy * N - Sy * Sx) / det, (Sxx * Sy - Sx * Sxy) / det
-
-
-def trends(d, row, start=None):
-    """ Calculate linear regression factors of data row.
-    row is name of data row
-    return tuple (a,b) for y(x)=ax+b
-    count x as date index, zero-based"""
-    if row not in [key for key in d[next(iter(d))].keys()]:
-        raise Exception(f'"{row}" not present in data.')
-    if len(d.keys()) < 2:
-        raise Excepton("Can't calculate trends based single value.")
-    # TODO: redefine date range
-    dates = [date for date in d.keys() if start is None or not (date < start.date())]
-    # calculate data regression
-    original = [d[date][row] for date in dates]
-    midc = linreg(range(len(original)), original)  # middle linear regression a,b
-    midval = [midc[0] * i + midc[1] for i in range(len(original))]  # middle data row
-    # calculate high regression
-    maxval = [(i, val[1]) for i, val in enumerate(zip(midval, original))
-              if val[1] > val[0]]  # get (index, value) for values higher middle
-    assert len(maxval) > 1
-    maxc = linreg(*list(zip(*maxval)))
-    # calculate low regression
-    minval = [(i, val[1]) for i, val in enumerate(zip(midval, original))
-              if val[1] < val[0]]  # get (index, value) for values lower middle
-    assert len(minval) > 1
-    minc = linreg(*list(zip(*minval)))
-    # return with fixed angles
-    return {'name': row,
-            'start': dates[0],
-            'end': dates[-1],
-            'mid': midc,
-            'min': (min(midc[0], minc[0]), minc[1]),
-            'max': (max(midc[0], maxc[0]), maxc[1])}
-
-
 def some_issues(client, keys: list):
     return [client.issues[key] for key in keys]
 
@@ -173,7 +118,7 @@ def define_parser():
     parser.add_argument('grouping', choices=['epics', 'stories', 'components', 'queues'],
                         help='value grouping criteria')
     parser.add_argument('output', choices=['dump', 'plot', 'csv'],
-                        help='output fromat')
+                        help='output format')
     parser.add_argument('timespan', choices=['today', 'week', 'sprint', 'month', 'quarter', 'all'],
                         help='calculation time range')
     return parser
@@ -218,8 +163,8 @@ def output(args, caption, data, trend=None):
     else:
         tabulate_csv(data)
     if trend is not None:
-        print(
-            f'{trend["name"]} {caption.lower()} average velocity {trend["mid"][0]:.1f} hrs/day, {5 * trend["mid"][0] / 8:.1f} days/week.')
+        print(f"{trend['name']} {caption.lower()} average velocity {trend['mid'][0]:.1f} hrs/day,"
+              f" {5 * trend['mid'][0] / 8:.1f} days/week.")
         middays = math.ceil(-trend['mid'][1] / trend['mid'][0])  # x(0) = -b/a for y(x)=ax+b
         mindays = math.ceil(-trend['min'][1] / trend['min'][0])  # x(0) = -b/a for y(x)=ax+b
         maxdays = math.ceil(-trend['max'][1] / trend['max'][0])  # x(0) = -b/a for y(x)=ax+b
@@ -236,25 +181,25 @@ def output(args, caption, data, trend=None):
 
 def trend_funnel(est):
     today = dt.datetime.now(dt.timezone.utc)
+    if (today.date() - next(iter(est))).days < 7:
+        raise Exception('Not enough data for prediction (at least 7 days required).')
     dates = list(rrule(DAILY,
-                       dtstart=today + relativedelta(months=-3),
-                       until=today + relativedelta(weeks=-1)))
-    mind = list()
-    midd = list()
-    maxd = list()
-    for date in dates:
-        tr = trends(est, 'Firmware', date)
-        midd.append(tr['start'] + relativedelta(days=math.ceil(-tr['mid'][1] / tr['mid'][0])))
-        mind.append(tr['start'] + relativedelta(days=math.ceil(-tr['min'][1] / tr['min'][0])))
-        maxd.append(tr['start'] + relativedelta(days=math.ceil(-tr['max'][1] / tr['max'][0])))
+                       dtstart=next(iter(est)),
+                       until=(today + relativedelta(weeks=-1)).date()))
+    predictions = [((tr := trends(est, 'Firmware', date))['start'] +
+                    relativedelta(days=math.ceil(tr['min'][1] / -tr['min'][0])),
+                    tr['start'] + relativedelta(days=math.ceil(-tr['mid'][1] / tr['mid'][0])),
+                    tr['start'] + relativedelta(days=math.ceil(-tr['max'][1] / tr['max'][0]))) for date in dates]
+    mind, midd, maxd = zip(*predictions)
+    p_range = [(today.date() - date.date()).days for date in dates]
     fig, ax = plt.subplots()
-    ax.plot(dates, midd, color='k', linewidth=1)
-    ax.plot(dates, mind, linestyle='dashed', color='k', linewidth=1)
-    ax.plot(dates, maxd, linestyle='dashed', color='k', linewidth=1)
+    ax.plot(p_range, midd, color='k', linewidth=1)
+    ax.plot(p_range, mind, linestyle='dashed', color='k', linewidth=1)
+    ax.plot(p_range, maxd, linestyle='dashed', color='k', linewidth=1)
     formatter = DateFormatter("%d.%m.%y")
-    ax.xaxis.set_major_formatter(formatter)
+    # ax.xaxis.set_major_formatter(formatter)
     ax.yaxis.set_major_formatter(formatter)
-    plt.xlabel('Prediction start')
+    plt.xlabel('Prediction range, days')
     plt.ylabel('Finish date')
     plt.grid()
     plt.draw()
@@ -284,6 +229,10 @@ def main():
         print('Close plot widget(s) to continue...')
     plt.show()
     input('Press any key to close...')  # for interactive mode
+
+
+def dev(issues):
+    print(sprints(issues))
 
 
 if __name__ == '__main__':
