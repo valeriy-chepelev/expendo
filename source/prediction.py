@@ -22,8 +22,8 @@ def trends(d, row, start=None):
     count x as date index, zero-based"""
     if row not in [key for key in d[next(iter(d))].keys()]:
         raise Exception(f'"{row}" not present in data.')
-    if len(d.keys()) < 2:
-        raise Exception("Can't calculate trends based single value.")
+    if len(d.keys()) < 7:
+        raise Exception('Not enough data for prediction (at least 7 days retro required).')
     # TODO: redefine date range
     dates = [date for date in d.keys() if start is None or not (date < start.date())]
     # calculate data regression

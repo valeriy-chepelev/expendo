@@ -293,8 +293,19 @@ def sprints(issues: list) -> list:
     return sorted(list(s))
 
 
+def issue_valuable(issue) -> bool:
+    """Return flag of issue is useful and finished """
+    # TODO: update list of statuses and resolutions
+    return issue.type.key in ['task', 'bug'] and \
+        issue.status.key == 'closed' \
+        and issue.resolution.key == 'fixed'
+
+
 def issue_velocity(issue, mode, cat, default_comp=()):
-    # DRAFT: get issue sprint velocity
+    """Calculate velocity in sprints for issue and it's descendants.
+    Return {category : {spint_start_date : closed estimate}}
+    Velocity is initial estimate at first sprint, distributed to all the task sprints.
+    Unclosed, canceled, non-sprint tasks are ignored."""
     if mode == 'components':
         own_cat = cashed_components(issue)
     elif mode == 'queues':
@@ -305,24 +316,33 @@ def issue_velocity(issue, mode, cat, default_comp=()):
     if (cat == '' or cat in own_cat) or \
             (mode not in ['components', 'queues']) or \
             (len(own_cat) == 0 and cat in default_comp):
-        if len(_get_linked(issue)) == 0:  # TODO: check issue is closed task or closed bug
+        if len(_get_linked(issue)) == 0 and issue_valuable(issue):
             sprint_dates = issue_sprints(issue)
-            estimates = _get_issue_times(issue)
-            first_est = next((s['value'] for s in estimates
-                              if s['kind'] == 'estimation' and s['date'].date() <= sprint_dates[0]),
-                             0)  # maybe need next day
-            issue_burn = {date: first_est / len(sprint_dates) for date in sprint_dates}
-            counter.update(Counter(issue_burn))
+            if len(sprint_dates) > 0:
+                first_est = next((s['value'] for s in _get_issue_times(issue)
+                                  if s['kind'] == 'estimation' and s['date'].date() <= sprint_dates[0]),
+                                 0)  # maybe need next day?
+                counter.update({date: first_est / len(sprint_dates) for date in sprint_dates})
         else:
             for linked in _get_linked(issue):
-                issue_burn = issue_velocity(linked, mode, cat,
-                                            own_cat if mode == 'components' and len(own_cat) > 0 \
-                                                else default_comp)
-                counter.update(Counter(issue_burn))
+                counter.update(issue_velocity(linked, mode, cat,
+                                              own_cat if mode == 'components' and len(own_cat) > 0 else default_comp))
     return dict(counter)
 
 
+def _sum_dict(d: list) -> dict:
+    """Summarise dictionaries using Counters"""
+    result = Counter()
+    for item in d:
+        result.update(item)
+    return dict(result)
+
+
 def velocity(issues: list, mode):
+    """Return sprint velocity of issues and it descendants, sorted by mode
+    {category : {spint_start_date : closed estimate}}
+    Velocity is initial estimate at first sprint, distributed to all the task sprints.
+    Unclosed, canceled, non-sprint tasks are ignored."""
     if mode == 'queues':
         cats = queues(issues, True)
     elif mode == 'components':
@@ -332,9 +352,9 @@ def velocity(issues: list, mode):
     with alive_bar(len(issues) * len(cats),
                    title='Velocity', theme='classic') as bar:
         if mode in ['queues', 'components']:
-            return {cat: sum([issue_velocity(issue, mode, cat)  # TODO: need summ of Counters
-                              for issue in issues if bar() not in ['nothing']])
+            return {cat: dict(sorted(_sum_dict([issue_velocity(issue, mode, cat)
+                                                for issue in issues if bar() not in ['nothing']]).items()))
                     for cat in cats}
         else:
-            return {issue.key: issue_velocity(issue, mode, '')
+            return {issue.key: dict(sorted(issue_velocity(issue, mode, '').items()))
                     for issue in issues if bar() not in ['nothing']}

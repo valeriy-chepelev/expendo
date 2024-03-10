@@ -11,7 +11,7 @@ import configparser
 import argparse
 from prettytable import PrettyTable
 
-from tracker_data import epics, stories, get_start_date, estimate, spent, precashe, sprints
+from tracker_data import epics, stories, get_start_date, estimate, spent, precashe, sprints, velocity
 from prediction import trends
 
 
@@ -71,12 +71,11 @@ def plot_details(title: str, d: dict, trend):
 def plot_velocity(title: str, d: dict):
     fig, ax = plt.subplots()
     for row in iter(d):
-        ax.plot(list(d[row].keys()),
-                list(d[row].values()),
-                label=row, marker='.')
+        if len(d[row]) > 0:
+            ax.plot(list(d[row].keys()), list(d[row].values()), label=row, linewidth=1, marker='.')
     formatter = DateFormatter("%d.%m.%y")
     ax.xaxis.set_major_formatter(formatter)
-    plt.xlabel('Date')
+    plt.xlabel('Sprint date')
     plt.ylabel('[hours/sprint]')
     plt.grid()
     plt.legend()
@@ -144,9 +143,11 @@ def define_parser():
 def get_scope(client, args):
     """Return list of scoped issue objects."""
     if args.scope in [p.name for p in client.projects]:
+        # if argument is a project name
         if args.grouping == stories:
             return stories(client, args.scope)
         return epics(client, args.scope)
+    # else argument is issues list, and epics or stories grouping ignored
     try:
         issues = [client.issues[k] for k in str(args.scope).split(',')]
     except NotFound:
@@ -181,7 +182,7 @@ def output(args, caption, data, trend=None):
         tabulate_csv(data)
     if trend is not None:
         print(f"{trend['name']} {caption.lower()} average velocity {trend['mid'][0]:.1f} hrs/day,"
-              f" {5 * trend['mid'][0] / 8:.1f} days/week.")
+              f" {14 * trend['mid'][0]:.1f} hrs/sprint.")
         middays = math.ceil(-trend['mid'][1] / trend['mid'][0])  # x(0) = -b/a for y(x)=ax+b
         mindays = math.ceil(-trend['min'][1] / trend['min'][0])  # x(0) = -b/a for y(x)=ax+b
         maxdays = math.ceil(-trend['max'][1] / trend['max'][0])  # x(0) = -b/a for y(x)=ax+b
@@ -238,6 +239,8 @@ def main():
         tr = trends(est, 'Firmware')
         output(args, 'Estimates', est, tr)  # trend temporary debug
         trend_funnel(est)
+        vel = velocity(issues, args.grouping)
+        plot_velocity('Velocity at sprint', vel)
     if args.parameter in ['spent', 'all']:
         spt = spent(issues, dates, args.grouping)
         output(args, 'Spends', spt)
@@ -249,7 +252,11 @@ def main():
 
 
 def dev(issues):
-    print(sprints(issues))
+    table = PrettyTable()
+    table.field_names = ['Key', 'Type', 'Summary', 'Status', 'Resolution']
+    for issue in issues:
+        table.add_row([issue.key, issue.type.key, issue.summary, issue.status.key, issue.resolution.key])
+    print(table)
 
 
 if __name__ == '__main__':
