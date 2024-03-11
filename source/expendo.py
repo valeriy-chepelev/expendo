@@ -72,10 +72,10 @@ def plot_velocity(title: str, d: dict):
     fig, ax = plt.subplots()
     for row in iter(d):
         if len(d[row]) > 0:
-            ax.plot(list(d[row].keys()), list(d[row].values()), label=row, linewidth=1, marker='.')
+            ax.plot(list(d[row].keys()), list(d[row].values()), label=row, linewidth=1, marker=9)
     formatter = DateFormatter("%d.%m.%y")
     ax.xaxis.set_major_formatter(formatter)
-    plt.xlabel('Sprint date')
+    plt.xlabel('Sprint start date')
     plt.ylabel('[hours/sprint]')
     plt.grid()
     plt.legend()
@@ -129,7 +129,7 @@ def define_parser():
                                      epilog='Tracker connection settings and params in "expendo.ini".')
     parser.add_argument('scope',
                         help='project name or comma-separated issues keys (no space allowed)')
-    parser.add_argument('parameter', choices=['spent', 'estimate', 'burn', 'all'],
+    parser.add_argument('parameter', choices=['spent', 'estimate', 'velocity', 'all'],
                         help='measured value')
     parser.add_argument('grouping', choices=['epics', 'stories', 'components', 'queues'],
                         help='value grouping criteria')
@@ -181,20 +181,33 @@ def output(args, caption, data, trend=None):
     else:
         tabulate_csv(data)
     if trend is not None:
-        print(f"{trend['name']} {caption.lower()} average velocity {trend['mid'][0]:.1f} hrs/day,"
-              f" {14 * trend['mid'][0]:.1f} hrs/sprint.")
-        middays = math.ceil(-trend['mid'][1] / trend['mid'][0])  # x(0) = -b/a for y(x)=ax+b
-        mindays = math.ceil(-trend['min'][1] / trend['min'][0])  # x(0) = -b/a for y(x)=ax+b
-        maxdays = math.ceil(-trend['max'][1] / trend['max'][0])  # x(0) = -b/a for y(x)=ax+b
-        dates = [next(iter(data)) + relativedelta(days=mindays),
-                 next(iter(data)) + relativedelta(days=middays),
-                 next(iter(data)) + relativedelta(days=maxdays)]
-        dates.sort()
-        print(f'Projected {trend["name"]} zero-{caption.lower()} date:')
-        table = PrettyTable()
-        table.field_names = ['Early', 'Average', 'Lately']
-        table.add_row([d.strftime("%d.%m.%y") for d in dates])
-        print(table)
+        tabulate_trend(trend)
+
+
+def _date_shift(date, shift):
+    if shift < 0:
+        return "Unknown"
+    if shift > 1095:
+        return "Exceed 3 years"
+    return date + relativedelta(days=shift)
+
+
+def tabulate_trend(trend):
+    print(f'{trend["name"]} estimate projection:')
+    middays = math.ceil(-trend['mid'][1] / trend['mid'][0])  # x(0) = -b/a for y(x)=ax+b
+    mindays = math.ceil(-trend['min'][1] / trend['min'][0])  # x(0) = -b/a for y(x)=ax+b
+    maxdays = math.ceil(-trend['max'][1] / trend['max'][0])  # x(0) = -b/a for y(x)=ax+b
+    table = PrettyTable()
+    table.field_names = ['Value', 'Early', 'Average', 'Lately']
+    table.add_row(['Velocity, hrs/sprint',
+                   f"{14 * trend['min'][0]:.1f}",
+                   f"{14 * trend['mid'][0]:.1f}",
+                   f"{14 * trend['max'][0]:.1f}"])
+    table.add_row(['Projected finish',
+                   s if type(s := _date_shift(trend['start'], mindays)) == str else s.strftime("%d.%m.%y"),
+                   s if type(s := _date_shift(trend['start'], middays)) == str else s.strftime("%d.%m.%y"),
+                   s if type(s := _date_shift(trend['start'], maxdays)) == str else s.strftime("%d.%m.%y")])
+    print(table)
 
 
 def trend_funnel(est):
@@ -204,10 +217,13 @@ def trend_funnel(est):
     dates = list(rrule(DAILY,
                        dtstart=next(iter(est)),
                        until=(today + relativedelta(weeks=-1)).date()))
-    predictions = [((tr := trends(est, 'Firmware', date))['start'] +
-                    relativedelta(days=math.ceil(tr['min'][1] / -tr['min'][0])),
-                    tr['start'] + relativedelta(days=math.ceil(-tr['mid'][1] / tr['mid'][0])),
-                    tr['start'] + relativedelta(days=math.ceil(-tr['max'][1] / tr['max'][0]))) for date in dates]
+    predictions = [(today.date() if type(d := _date_shift((tr := trends(est, 'Firmware', date))['start'],
+                                                          math.ceil(-tr['min'][1] / tr['min'][0]))) == str else d,
+                    today.date() if type(d := _date_shift(tr['start'],
+                                                          math.ceil(-tr['mid'][1] / tr['mid'][0]))) == str else d,
+                    today.date() if type(d := _date_shift(tr['start'],
+                                                          math.ceil(-tr['max'][1] / tr['max'][0]))) == str else d)
+                   for date in dates]
     mind, midd, maxd = zip(*predictions)
     p_range = [(today.date() - date.date()).days for date in dates]
     fig, ax = plt.subplots()
@@ -215,7 +231,6 @@ def trend_funnel(est):
     ax.plot(p_range, mind, linestyle='dashed', color='k', linewidth=1)
     ax.plot(p_range, maxd, linestyle='dashed', color='k', linewidth=1)
     formatter = DateFormatter("%d.%m.%y")
-    # ax.xaxis.set_major_formatter(formatter)
     ax.yaxis.set_major_formatter(formatter)
     plt.xlabel('Retro range, days')
     plt.title('Firmware finish date')
@@ -231,7 +246,7 @@ def main():
     args = define_parser().parse_args()  # get CLI arguments
     print(f'Crawling tracker "{args.scope}"...')
     issues = get_scope(client, args)  # get issues objects
-    precashe(issues, True)
+    # precashe(issues, True)
     dates = get_dates(issues, args)  # get date range
     matplotlib.use('TkAgg')
     if args.parameter in ['estimate', 'all']:
@@ -239,6 +254,7 @@ def main():
         tr = trends(est, 'Firmware')
         output(args, 'Estimates', est, tr)  # trend temporary debug
         trend_funnel(est)
+    if args.parameter in ['velocity', 'all']:
         vel = velocity(issues, args.grouping)
         plot_velocity('Velocity at sprint', vel)
     if args.parameter in ['spent', 'all']:

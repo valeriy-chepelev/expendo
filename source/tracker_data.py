@@ -295,15 +295,14 @@ def sprints(issues: list) -> list:
 
 def issue_valuable(issue) -> bool:
     """Return flag of issue is useful and finished """
-    # TODO: update list of statuses and resolutions
     return issue.type.key in ['task', 'bug'] and \
-        issue.status.key == 'closed' \
-        and issue.resolution.key == 'fixed'
+        issue.status.key in ['resolved', 'closed'] and \
+        issue.resolution.key in ['fixed']
 
 
 def issue_velocity(issue, mode, cat, default_comp=()):
     """Calculate velocity in sprints for issue and it's descendants.
-    Return {category : {spint_start_date : closed estimate}}
+    Return {category : {sprint_start_date : closed estimate}}
     Velocity is initial estimate at first sprint, distributed to all the task sprints.
     Unclosed, canceled, non-sprint tasks are ignored."""
     if mode == 'components':
@@ -343,6 +342,7 @@ def velocity(issues: list, mode):
     {category : {spint_start_date : closed estimate}}
     Velocity is initial estimate at first sprint, distributed to all the task sprints.
     Unclosed, canceled, non-sprint tasks are ignored."""
+    # TODO: Zero values should be present
     if mode == 'queues':
         cats = queues(issues, True)
     elif mode == 'components':
