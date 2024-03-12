@@ -302,7 +302,7 @@ def issue_valuable(issue) -> bool:
 
 def issue_velocity(issue, mode, cat, default_comp=()):
     """Calculate velocity in sprints for issue and it's descendants.
-    Return {category : {sprint_start_date : closed estimate}}
+    Return {sprint_start_date : closed estimate}
     Velocity is initial estimate at first sprint, distributed to all the task sprints.
     Unclosed, canceled, non-sprint tasks are ignored."""
     if mode == 'components':
@@ -339,10 +339,9 @@ def _sum_dict(d: list) -> dict:
 
 def velocity(issues: list, mode):
     """Return sprint velocity of issues and it descendants, sorted by mode
-    {category : {spint_start_date : closed estimate}}
+    {category : {sprint_start_date : closed estimate}}
     Velocity is initial estimate at first sprint, distributed to all the task sprints.
     Unclosed, canceled, non-sprint tasks are ignored."""
-    # TODO: Zero values should be present
     if mode == 'queues':
         cats = queues(issues, True)
     elif mode == 'components':
@@ -352,9 +351,11 @@ def velocity(issues: list, mode):
     with alive_bar(len(issues) * len(cats),
                    title='Velocity', theme='classic') as bar:
         if mode in ['queues', 'components']:
-            return {cat: dict(sorted(_sum_dict([issue_velocity(issue, mode, cat)
-                                                for issue in issues if bar() not in ['nothing']]).items()))
-                    for cat in cats}
+            v = {cat: _sum_dict([issue_velocity(issue, mode, cat)
+                                 for issue in issues if bar() not in ['nothing']])
+                 for cat in cats}
         else:
-            return {issue.key: dict(sorted(issue_velocity(issue, mode, '').items()))
-                    for issue in issues if bar() not in ['nothing']}
+            v = {issue.key: issue_velocity(issue, mode, '')
+                 for issue in issues if bar() not in ['nothing']}
+    dates = {key: 0 for value in v.values() for key in iter(value)}  # get all the dates with zero values
+    return {row: dict(sorted(_sum_dict([dates, v[row]]).items())) for row in iter(v)}  # add zero dates to all the rows

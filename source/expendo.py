@@ -84,6 +84,17 @@ def plot_velocity(title: str, d: dict):
     plt.draw()
 
 
+def tabulate_velocity(title: str, d: dict):
+    table = PrettyTable()
+    table.field_names = ['Sprint start', *d.keys(), 'Summary']
+    for date in d[next(iter(d))].keys():
+        values = [d[row][date] for row in iter(d)]
+        table.add_row([date.strftime("%d.%m.%y"), *values, sum(values)])
+    table.float_format = '.1'
+    table.align = 'r'
+    print(table)
+
+
 def tabulate_details(d: dict):
     table = PrettyTable()
     sk = [key for key in d[next(iter(d))].keys()]
@@ -246,7 +257,7 @@ def main():
     args = define_parser().parse_args()  # get CLI arguments
     print(f'Crawling tracker "{args.scope}"...')
     issues = get_scope(client, args)  # get issues objects
-    # precashe(issues, True)
+    precashe(issues, True)
     dates = get_dates(issues, args)  # get date range
     matplotlib.use('TkAgg')
     if args.parameter in ['estimate', 'all']:
@@ -256,6 +267,7 @@ def main():
         trend_funnel(est)
     if args.parameter in ['velocity', 'all']:
         vel = velocity(issues, args.grouping)
+        tabulate_velocity('Velocity at sprint', vel)
         plot_velocity('Velocity at sprint', vel)
     if args.parameter in ['spent', 'all']:
         spt = spent(issues, dates, args.grouping)
