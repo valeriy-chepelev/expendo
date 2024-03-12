@@ -92,6 +92,7 @@ def tabulate_velocity(title: str, d: dict):
         table.add_row([date.strftime("%d.%m.%y"), *values, sum(values)])
     table.float_format = '.1'
     table.align = 'r'
+    print(title)
     print(table)
 
 
@@ -221,14 +222,14 @@ def tabulate_trend(trend):
     print(table)
 
 
-def trend_funnel(est):
+def trend_funnel(est, row_name):
     today = dt.datetime.now(dt.timezone.utc)
     if (today.date() - next(iter(est))).days < 7:
         raise Exception('Not enough data for prediction (at least 7 days retro required).')
     dates = list(rrule(DAILY,
                        dtstart=next(iter(est)),
                        until=(today + relativedelta(weeks=-1)).date()))
-    predictions = [(today.date() if type(d := _date_shift((tr := trends(est, 'Firmware', date))['start'],
+    predictions = [(today.date() if type(d := _date_shift((tr := trends(est, row_name, date))['start'],
                                                           math.ceil(-tr['min'][1] / tr['min'][0]))) == str else d,
                     today.date() if type(d := _date_shift(tr['start'],
                                                           math.ceil(-tr['mid'][1] / tr['mid'][0]))) == str else d,
@@ -244,7 +245,7 @@ def trend_funnel(est):
     formatter = DateFormatter("%d.%m.%y")
     ax.yaxis.set_major_formatter(formatter)
     plt.xlabel('Retro range, days')
-    plt.title('Firmware finish date')
+    plt.title('Finish date')
     plt.grid()
     plt.draw()
 
@@ -262,13 +263,13 @@ def main():
     matplotlib.use('TkAgg')
     if args.parameter in ['estimate', 'all']:
         est = estimate(issues, dates, args.grouping)
-        tr = trends(est, 'Firmware')
-        output(args, 'Estimates', est, tr)  # trend temporary debug
-        trend_funnel(est)
+        tr = trends(est, 'MTPD-368')  # trend temporary debug
+        output(args, 'Estimates', est, tr)
+        trend_funnel(est, 'MTPD-368')  # trend temporary debug
     if args.parameter in ['velocity', 'all']:
         vel = velocity(issues, args.grouping)
-        tabulate_velocity('Velocity at sprint', vel)
-        plot_velocity('Velocity at sprint', vel)
+        tabulate_velocity('Velocity at sprints', vel)
+        plot_velocity('Velocity at sprints', vel)
     if args.parameter in ['spent', 'all']:
         spt = spent(issues, dates, args.grouping)
         output(args, 'Spends', spt)
