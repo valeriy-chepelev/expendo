@@ -10,8 +10,8 @@ from matplotlib.dates import DateFormatter
 import configparser
 import argparse
 from prettytable import PrettyTable
-
-from tracker_data import epics, stories, get_start_date, estimate, spent, precashe, sprints, velocity
+from pprint import pprint
+from tracker_data import epics, stories, get_start_date, estimate, spent, precashe, velocity, get_linked_issues
 from prediction import trends
 
 
@@ -96,6 +96,14 @@ def tabulate_velocity(title: str, d: dict):
     print(table)
 
 
+def tabulate_velocity_csv(title: str, d: dict):
+    print(title)
+    print('Sprint start', *d.keys(), 'Summary', sep=',')
+    for date in d[next(iter(d))].keys():
+        values = [d[row][date] for row in iter(d)]
+        print(date.strftime("%d.%m.%y"), *values, sum(values), sep=',')
+
+
 def tabulate_details(d: dict):
     table = PrettyTable()
     sk = [key for key in d[next(iter(d))].keys()]
@@ -112,10 +120,6 @@ def tabulate_csv(d: dict):
     for date in d.keys():
         sval = ",".join([str(val) for val in d[date].values()])
         print(date.strftime("%d.%m.%y"), sval, sum(d[date].values()), sep=',')
-
-
-def some_issues(client, keys: list):
-    return [client.issues[key] for key in keys]
 
 
 # g_project = "MT SystemeLogic(ACB)"  # Temporary, will be moved to argument parser
@@ -143,12 +147,14 @@ def define_parser():
                         help='project name or comma-separated issues keys (no space allowed)')
     parser.add_argument('parameter', choices=['spent', 'estimate', 'velocity', 'all'],
                         help='measured value')
+    # TODO: add 'burn' and 'splashed burn', and/or rename velocity to sprint velocity
     parser.add_argument('grouping', choices=['epics', 'stories', 'components', 'queues'],
                         help='value grouping criteria')
     parser.add_argument('output', choices=['dump', 'plot', 'csv'],
                         help='output format')
     parser.add_argument('timespan', choices=['today', 'week', 'sprint', 'month', 'quarter', 'all'],
                         help='calculation time range')
+    parser.add_argument('-t', '--trend', help='estimate trend projection for selected issue key')
     return parser
 
 
@@ -157,13 +163,16 @@ def get_scope(client, args):
     if args.scope in [p.name for p in client.projects]:
         # if argument is a project name
         if args.grouping == stories:
-            return stories(client, args.scope)
-        return epics(client, args.scope)
-    # else argument is issues list, and epics or stories grouping ignored
+            return stories(client, args.scope)  # Project top-level Stories for the 'stories'
+        return epics(client, args.scope)  # Project top-level Epics for all except 'stories'
+    # else argument is issues list, and epics or stories grouping _ignored_
     try:
         issues = [client.issues[k] for k in str(args.scope).split(',')]
     except NotFound:
         raise Exception(f'"{args.scope}" contain unknown task(s).')
+    # if only one issue defined - scope is all sub-issues
+    if (len(issues) == 1) and (len(linked := get_linked_issues(issues[0])) > 0):
+        return linked
     return issues
 
 
@@ -263,13 +272,19 @@ def main():
     matplotlib.use('TkAgg')
     if args.parameter in ['estimate', 'all']:
         est = estimate(issues, dates, args.grouping)
-        tr = trends(est, 'MTPD-368')  # trend temporary debug
+        tr = None
+        if args.trend is not None:
+            try:
+                tr = trends(est, args.trend)
+                trend_funnel(est, args.trend)
+            except Exception as ex:
+                print('Execution error:', ex)
         output(args, 'Estimates', est, tr)
-        trend_funnel(est, 'MTPD-368')  # trend temporary debug
     if args.parameter in ['velocity', 'all']:
         vel = velocity(issues, args.grouping)
         tabulate_velocity('Velocity at sprints', vel)
         plot_velocity('Velocity at sprints', vel)
+        # TODO: add burn plotting and tabulating same way as sprint velocity
     if args.parameter in ['spent', 'all']:
         spt = spent(issues, dates, args.grouping)
         output(args, 'Spends', spt)
@@ -280,12 +295,13 @@ def main():
     input('Press any key to close...')  # for interactive mode
 
 
+def some_issues(client, keys: list):
+    return [client.issues[key] for key in keys]
+
+
 def dev(issues):
-    table = PrettyTable()
-    table.field_names = ['Key', 'Type', 'Summary', 'Status', 'Resolution']
     for issue in issues:
-        table.add_row([issue.key, issue.type.key, issue.summary, issue.status.key, issue.resolution.key])
-    print(table)
+        print(issue.key, issue.summary)
 
 
 if __name__ == '__main__':
