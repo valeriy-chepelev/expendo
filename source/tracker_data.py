@@ -4,6 +4,7 @@ import math
 from functools import lru_cache
 from alive_progress import alive_bar
 from collections import Counter
+from dateutil.rrule import rrule, DAILY
 
 
 def _get_iso_split(s, split):
@@ -44,7 +45,7 @@ def iso_days(s):
 
 @lru_cache(maxsize=None)  # Cashing access to YT
 def _get_issue_times(issue):
-    """ Return reverse-sorted by time list of issue spents, estimates, status and resolution changes"""
+    """ Return reverse-sorted by time list of issue spends, estimates, status and resolution changes"""
     # TODO: resolution and status below is logged to measure velocity, erase if not used finally
     sp = [{'date': dt.datetime.strptime(log.updatedAt, '%Y-%m-%dT%H:%M:%S.%f%z'),
            'kind': field['field'].id,
@@ -341,7 +342,7 @@ def _sum_dict(d: list) -> dict:
 
 
 def velocity(issues: list, mode):
-    """Return sprint velocity of issues and it descendants, sorted by mode
+    """Return sprint velocity of issues and its descendants, sorted by mode
     {category : {sprint_start_date : closed estimate}}
     Velocity is initial estimate at first sprint, distributed to all the task sprints.
     Unclosed, canceled, non-sprint tasks are ignored."""
@@ -375,17 +376,17 @@ def _issue_burn_data(issue) -> dict:
                       if t['kind'] == 'resolution' and t['value'] in ['fixed'])
     # find last estimation before start
     est = next((s['value'] for s in _get_issue_times(issue)
-                if s['kind'] == 'estimation' and s['date'].date() <= start_date), 0)
+                if s['kind'] == 'estimation' and s['date'].date() <= start_date.date()), 0)
     # if task not estimated before start - find any first estimation
     if est == 0:
         est = next((s['value'] for s in reversed(_get_issue_times(issue))
                     if s['kind'] == 'estimation'), 0)
-    return {'start': start_date,
-            'end': final_date,
+    return {'start': start_date.date(),
+            'end': final_date.date(),
             'estimate': est}
 
 
-def issue_burn(issue, mode, cat, default_comp=()):
+def issue_burn(issue, mode, cat, splash, default_comp=()):
     """Calculate burned estimate for issue and it's descendants.
     Return {burn_date : initial estimate}
     Unclosed, canceled tasks are ignored."""
@@ -401,18 +402,25 @@ def issue_burn(issue, mode, cat, default_comp=()):
             (len(own_cat) == 0 and cat in default_comp):
         if len(get_linked_issues(issue)) == 0 and issue_valuable(issue):
             try:
-                counter.update({(b := _issue_burn_data(issue))['end']: b['estimate']})
+                b = _issue_burn_data(issue)
+                se = b['estimate']/((b['end']-b['start']).days+1)
+                if splash:
+                    pass
+                    counter.update({date.date(): se
+                                    for date in rrule(DAILY, dtstart=b['start'], until=b['end'])})
+                else:
+                    counter.update({b['end']: b['estimate']})
             except StopIteration:
                 pass
         else:
             for linked in get_linked_issues(issue):
-                counter.update(issue_burn(linked, mode, cat,
+                counter.update(issue_burn(linked, mode, cat, splash,
                                           own_cat if mode == 'components' and len(own_cat) > 0 else default_comp))
     return dict(counter)
 
 
-def burn(issues: list, mode):
-    """Return burn (closed initial estimate) of issues and it descendants, sorted by mode
+def burn(issues: list, mode, splash):
+    """Return burn (closed initial estimate) of issues and its descendants, sorted by mode
     {category : {date : closed estimate}}
     Unclosed, canceled tasks are ignored."""
     if mode == 'queues':
@@ -424,12 +432,12 @@ def burn(issues: list, mode):
     with alive_bar(len(issues) * len(cats),
                    title='Burn', theme='classic') as bar:
         if mode in ['queues', 'components']:
-            v = {cat: _sum_dict([issue_burn(issue, mode, cat)
+            v = {cat: _sum_dict([issue_burn(issue, mode, cat, splash)
                                  for issue in issues if bar() not in ['nothing']])
                  for cat in cats}
         else:
-            v = {issue.key: issue_burn(issue, mode, '')
+            v = {issue.key: issue_burn(issue, mode, '', splash)
                  for issue in issues if bar() not in ['nothing']}
-    # TODO: new dates range for all project range
-    dates = {key: 0 for value in v.values() for key in iter(value)}  # get all the dates with zero values
-    return {row: dict(sorted(_sum_dict([dates, v[row]]).items())) for row in iter(v)}  # add zero dates to all the rows
+    dates = sorted([key for value in v.values() for key in iter(value)])
+    zeroes = {date.date(): 0 for date in rrule(DAILY, dtstart=dates[0], until=dates[-1])}
+    return {row: dict(sorted(_sum_dict([zeroes, v[row]]).items())) for row in iter(v)}

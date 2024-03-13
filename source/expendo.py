@@ -11,8 +11,9 @@ import configparser
 import argparse
 from prettytable import PrettyTable
 from pprint import pprint
-from tracker_data import epics, stories, get_start_date, estimate, spent, precashe, velocity, get_linked_issues
+from tracker_data import epics, stories, get_start_date, estimate, spent, precashe, velocity, burn
 from prediction import trends
+from typing import Any
 
 
 def read_config(filename):
@@ -68,11 +69,11 @@ def plot_details(title: str, d: dict, trend):
     plt.draw()
 
 
-def plot_velocity(title: str, d: dict):
+def plot_velocity(title: str, d: dict, marker: Any = 9):
     fig, ax = plt.subplots()
     for row in iter(d):
         if len(d[row]) > 0:
-            ax.plot(list(d[row].keys()), list(d[row].values()), label=row, linewidth=1, marker=9)
+            ax.plot(list(d[row].keys()), list(d[row].values()), label=row, linewidth=1, marker=marker)
     formatter = DateFormatter("%d.%m.%y")
     ax.xaxis.set_major_formatter(formatter)
     plt.xlabel('Sprint start date')
@@ -145,7 +146,7 @@ def define_parser():
                                      epilog='Tracker connection settings and params in "expendo.ini".')
     parser.add_argument('scope',
                         help='project name or comma-separated issues keys (no space allowed)')
-    parser.add_argument('parameter', choices=['spent', 'estimate', 'velocity', 'all'],
+    parser.add_argument('parameter', choices=['spent', 'estimate', 'velocity', 'burn', 'all'],
                         help='measured value')
     # TODO: add 'burn' and 'splashed burn', and/or rename velocity to sprint velocity
     parser.add_argument('grouping', choices=['epics', 'stories', 'components', 'queues'],
@@ -154,7 +155,10 @@ def define_parser():
                         help='output format')
     parser.add_argument('timespan', choices=['today', 'week', 'sprint', 'month', 'quarter', 'all'],
                         help='calculation time range')
-    parser.add_argument('-t', '--trend', help='estimate trend projection for selected issue key')
+    parser.add_argument('-t', '--trend',
+                        help='make estimate trend projection for selected issue')
+    parser.add_argument('-s', '--splash', default=False, action='store_true',
+                        help='splash burned initial estimate to all task duration')
     return parser
 
 
@@ -162,17 +166,23 @@ def get_scope(client, args):
     """Return list of scoped issue objects."""
     if args.scope in [p.name for p in client.projects]:
         # if argument is a project name
+        print(f'Crawling tracker in project "{args.scope}":')
         if args.grouping == stories:
-            return stories(client, args.scope)  # Project top-level Stories for the 'stories'
-        return epics(client, args.scope)  # Project top-level Epics for all except 'stories'
+            issues = stories(client, args.scope)  # Project top-level Stories for the 'stories'
+        issues = epics(client, args.scope)  # Project top-level Epics for all except 'stories'
     # else argument is issues list, and epics or stories grouping _ignored_
-    try:
-        issues = [client.issues[k] for k in str(args.scope).split(',')]
-    except NotFound:
-        raise Exception(f'"{args.scope}" contain unknown task(s).')
-    # if only one issue defined - scope is all sub-issues
-    if (len(issues) == 1) and (len(linked := get_linked_issues(issues[0])) > 0):
-        return linked
+    else:
+        try:
+            issues = [client.issues[k] for k in str(args.scope).split(',')]
+            print('Crawling tracker in issues:')
+        except NotFound:
+            raise Exception(f'"{args.scope}" task(s) not found in tracker.')
+    table = PrettyTable()
+    table.field_names = ['Key', 'Type', 'Summary']
+    for issue in issues:
+        table.add_row([issue.key, issue.type.key, issue.summary])
+    table.align = 'l'
+    print(table)
     return issues
 
 
@@ -265,7 +275,6 @@ def main():
     if client.myself is None:
         raise Exception('Unable to connect Yandex Tracker.')
     args = define_parser().parse_args()  # get CLI arguments
-    print(f'Crawling tracker "{args.scope}"...')
     issues = get_scope(client, args)  # get issues objects
     precashe(issues, True)
     dates = get_dates(issues, args)  # get date range
@@ -285,6 +294,10 @@ def main():
         tabulate_velocity('Velocity at sprints', vel)
         plot_velocity('Velocity at sprints', vel)
         # TODO: add burn plotting and tabulating same way as sprint velocity
+    if args.parameter in ['burn', 'all']:
+        vel = burn(issues, args.grouping, args.splash)
+        # tabulate_velocity('Burn', vel)
+        plot_velocity('Burn', vel, '')
     if args.parameter in ['spent', 'all']:
         spt = spent(issues, dates, args.grouping)
         output(args, 'Spends', spt)
@@ -305,8 +318,10 @@ def dev(issues):
 
 
 if __name__ == '__main__':
+    main()
     try:
-        main()
+        # main()
+        pass
     except Exception as e:
         print('Execution error:', e)
         input('Press any key to close...')
