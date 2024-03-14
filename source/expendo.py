@@ -10,10 +10,8 @@ from matplotlib.dates import DateFormatter
 import configparser
 import argparse
 from prettytable import PrettyTable
-from pprint import pprint
-from tracker_data import epics, stories, get_start_date, estimate, spent, precashe, velocity, burn
+from tracker_data import epics, stories, get_start_date, estimate, spent, precashe, burn
 from prediction import trends
-from typing import Any
 
 
 def read_config(filename):
@@ -69,15 +67,15 @@ def plot_details(title: str, d: dict, trend):
     plt.draw()
 
 
-def plot_velocity(title: str, d: dict, marker: Any = 9):
+def plot_velocity(title: str, d: dict, y_units: str):
     fig, ax = plt.subplots()
     for row in iter(d):
         if len(d[row]) > 0:
-            ax.plot(list(d[row].keys()), list(d[row].values()), label=row, linewidth=1, marker=marker)
+            ax.plot(list(d[row].keys()), list(d[row].values()), label=row, linewidth=1)
     formatter = DateFormatter("%d.%m.%y")
     ax.xaxis.set_major_formatter(formatter)
-    plt.xlabel('Sprint start date')
-    plt.ylabel('[hours/sprint]')
+    plt.xlabel('Date')
+    plt.ylabel(y_units)
     plt.grid()
     plt.legend()
     plt.title(title)
@@ -85,27 +83,25 @@ def plot_velocity(title: str, d: dict, marker: Any = 9):
     plt.draw()
 
 
-def tabulate_velocity(title: str, d: dict):
+def table_velocity(d: dict):
     table = PrettyTable()
-    table.field_names = ['Sprint start', *d.keys(), 'Summary']
+    table.field_names = ['Date', *d.keys(), 'Summary']
     for date in d[next(iter(d))].keys():
         values = [d[row][date] for row in iter(d)]
         table.add_row([date.strftime("%d.%m.%y"), *values, sum(values)])
     table.float_format = '.1'
     table.align = 'r'
-    print(title)
     print(table)
 
 
-def tabulate_velocity_csv(title: str, d: dict):
-    print(title)
-    print('Sprint start', *d.keys(), 'Summary', sep=',')
+def tabulate_velocity(d: dict):
+    print('Date', *d.keys(), 'Summary', sep='\t')
     for date in d[next(iter(d))].keys():
         values = [d[row][date] for row in iter(d)]
-        print(date.strftime("%d.%m.%y"), *values, sum(values), sep=',')
+        print(date.strftime("%d.%m.%y"), *values, sum(values), sep='\t')
 
 
-def tabulate_details(d: dict):
+def table_data(d: dict):
     table = PrettyTable()
     sk = [key for key in d[next(iter(d))].keys()]
     table.field_names = ['Date', *sk, 'Summary']
@@ -116,11 +112,11 @@ def tabulate_details(d: dict):
     print(table)
 
 
-def tabulate_csv(d: dict):
-    print('Date', ",".join(d[next(iter(d))].keys()), 'Summary', sep=',')
+def tabulate_data(d: dict):
+    print('Date', "\t".join(d[next(iter(d))].keys()), 'Summary', sep='\t')
     for date in d.keys():
-        sval = ",".join([str(val) for val in d[date].values()])
-        print(date.strftime("%d.%m.%y"), sval, sum(d[date].values()), sep=',')
+        sval = "\t".join([str(val) for val in d[date].values()])
+        print(date.strftime("%d.%m.%y"), sval, sum(d[date].values()), sep='\t')
 
 
 # g_project = "MT SystemeLogic(ACB)"  # Temporary, will be moved to argument parser
@@ -148,17 +144,18 @@ def define_parser():
                         help='project name or comma-separated issues keys (no space allowed)')
     parser.add_argument('parameter', choices=['spent', 'estimate', 'velocity', 'burn', 'all'],
                         help='measured value')
-    # TODO: add 'burn' and 'splashed burn', and/or rename velocity to sprint velocity
     parser.add_argument('grouping', choices=['epics', 'stories', 'components', 'queues'],
-                        help='value grouping criteria')
-    parser.add_argument('output', choices=['dump', 'plot', 'csv'],
-                        help='output format')
+                        help='value grouping criteria (epics, stories for project scope only)')
     parser.add_argument('timespan', choices=['today', 'week', 'sprint', 'month', 'quarter', 'all'],
-                        help='calculation time range')
+                        help='time range (for spends and estimates only)')
     parser.add_argument('-t', '--trend',
-                        help='make estimate trend projection for selected issue')
-    parser.add_argument('-s', '--splash', default=False, action='store_true',
-                        help='splash burned initial estimate to all task duration')
+                        help='make estimate trend projections for TREND issue')
+    parser.add_argument('-p', '--plot', default=False, action='store_true',
+                        help='plot charts widgets')
+    parser.add_argument('-d', '--dump', default=False, action='store_true',
+                        help='dump data in tab-delimited format instead of pretty tables (for lazy Excel copy-pasting)')
+    parser.add_argument('--debug', default=False, action='store_true',
+                        help='logging in debug mode (include issues info)')
     return parser
 
 
@@ -169,7 +166,8 @@ def get_scope(client, args):
         print(f'Crawling tracker in project "{args.scope}":')
         if args.grouping == stories:
             issues = stories(client, args.scope)  # Project top-level Stories for the 'stories'
-        issues = epics(client, args.scope)  # Project top-level Epics for all except 'stories'
+        else:
+            issues = epics(client, args.scope)  # Project top-level Epics for all except 'stories'
     # else argument is issues list, and epics or stories grouping _ignored_
     else:
         try:
@@ -202,17 +200,6 @@ def get_dates(issues, args, sprint_days=14) -> list:
     else:
         start_date = get_start_date(issues)
     return list(rrule(DAILY, dtstart=start_date, until=today))
-
-
-def output(args, caption, data, trend=None):
-    if args.output == 'plot':
-        plot_details(caption, data, trend)
-    elif args.output == 'dump':
-        tabulate_details(data)
-    else:
-        tabulate_csv(data)
-    if trend is not None:
-        tabulate_trend(trend)
 
 
 def _date_shift(date, shift):
@@ -263,13 +250,14 @@ def trend_funnel(est, row_name):
     ax.plot(p_range, maxd, linestyle='dashed', color='k', linewidth=1)
     formatter = DateFormatter("%d.%m.%y")
     ax.yaxis.set_major_formatter(formatter)
-    plt.xlabel('Retro range, days')
+    plt.xlabel('Retro range [days]')
     plt.title('Finish date')
     plt.grid()
     plt.draw()
 
 
 def main():
+    # TODO: logging
     cfg = read_config('expendo.ini')
     client = TrackerClient(cfg['token'], cfg['org'])
     if client.myself is None:
@@ -279,30 +267,56 @@ def main():
     precashe(issues, True)
     dates = get_dates(issues, args)  # get date range
     matplotlib.use('TkAgg')
+    if args.parameter in ['spent', 'all']:
+        spt = spent(issues, dates, args.grouping)
+        print('Spends:')
+        if args.dump:
+            tabulate_data(spt)
+        else:
+            table_data(spt)
+        if args.plot:
+            plot_details('Spends', spt, None)
     if args.parameter in ['estimate', 'all']:
         est = estimate(issues, dates, args.grouping)
+        print('Estimates:')
+        if args.dump:
+            tabulate_data(est)
+        else:
+            table_data(est)
+        # Trends
         tr = None
         if args.trend is not None:
             try:
                 tr = trends(est, args.trend)
-                trend_funnel(est, args.trend)
+                tabulate_trend(tr)
+                if args.plot:
+                    trend_funnel(est, args.trend)
             except Exception as ex:
                 print('Execution error:', ex)
-        output(args, 'Estimates', est, tr)
-    if args.parameter in ['velocity', 'all']:
-        vel = velocity(issues, args.grouping)
-        tabulate_velocity('Velocity at sprints', vel)
-        plot_velocity('Velocity at sprints', vel)
-        # TODO: add burn plotting and tabulating same way as sprint velocity
+        # Plot estimates with trends
+        if args.plot:
+            plot_details('Estimates', est, tr)
     if args.parameter in ['burn', 'all']:
-        vel = burn(issues, args.grouping, args.splash)
-        # tabulate_velocity('Burn', vel)
-        plot_velocity('Burn', vel, '')
-    if args.parameter in ['spent', 'all']:
-        spt = spent(issues, dates, args.grouping)
-        output(args, 'Spends', spt)
+        brn = burn(issues, args.grouping, False)
+        print('Burned estimates:')
+        if args.dump:
+            tabulate_velocity(brn)
+        else:
+            table_velocity(brn)
+        if args.plot:
+            plot_velocity('Burned estimates', brn, '[hrs]')
+    if args.parameter in ['velocity', 'all']:
+        vel = burn(issues, args.grouping, True)
+        print('Velocity of estimates burning:')
+        if args.dump:
+            tabulate_velocity(vel)
+        else:
+            table_velocity(vel)
+        if args.plot:
+            plot_velocity('Burning velocity', vel, '[hrs/day]')
+
     # plt.ion()  # Turn on interactive plotting - not working, requires events loop for open plots
-    if args.output == 'plot':
+    if args.plot:
         print('Close plot widget(s) to continue...')
     plt.show()
     input('Press any key to close...')  # for interactive mode
@@ -318,9 +332,9 @@ def dev(issues):
 
 
 if __name__ == '__main__':
-    main()
+    # main()
     try:
-        # main()
+        main()
         pass
     except Exception as e:
         print('Execution error:', e)

@@ -1,6 +1,7 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="expendo scada 368" type="PythonConfigurationType" factoryName="Python">
     <module name="expendo" />
+    <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
@@ -8,12 +9,12 @@
     </envs>
     <option name="SDK_HOME" value="" />
     <option name="SDK_NAME" value="Python 3.11 (expendo)" />
-    <option name="WORKING_DIRECTORY" value="C:\Users\valer\PycharmProjects\expendo\source" />
+    <option name="WORKING_DIRECTORY" value="C:\Users\sea1693\PycharmProjects\expendo\source" />
     <option name="IS_MODULE_SDK" value="false" />
     <option name="ADD_CONTENT_ROOTS" value="true" />
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/source/expendo.py" />
-    <option name="PARAMETERS" value="&quot;MTPD-368&quot; burn epics plot quarter -s" />
+    <option name="PARAMETERS" value="&quot;MTPD-368&quot; burn epics quarter -p -d" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="true" />
     <option name="MODULE_MODE" value="false" />
