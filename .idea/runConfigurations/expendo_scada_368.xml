@@ -14,7 +14,7 @@
     <option name="ADD_CONTENT_ROOTS" value="true" />
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/source/expendo.py" />
-    <option name="PARAMETERS" value="&quot;MTPD-368&quot; burn epics quarter -p -d" />
+    <option name="PARAMETERS" value="&quot;MTPD-368&quot; all epics quarter -c --debug" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="true" />
     <option name="MODULE_MODE" value="false" />

@@ -4,6 +4,7 @@ from functools import lru_cache
 from alive_progress import alive_bar
 from collections import Counter
 from dateutil.rrule import rrule, DAILY
+import logging
 
 
 def _get_iso_split(s, split):
@@ -174,10 +175,11 @@ def spent(issues: list, dates: list, mode):
     If by_component requested, collect spent for issues components and return
     timeline {date: {component: spent[days]}}.
     Issue in list should be yandex tracker reference."""
+    logging.info('Spends calculation')
     if mode == 'queues':
-        cats = queues(issues, True)
+        cats = queues(issues)
     elif mode == 'components':
-        cats = components(issues, True)
+        cats = components(issues)
     else:
         cats = ['']
     with alive_bar(len(issues) * len(cats) * len(dates),
@@ -203,10 +205,11 @@ def estimate(issues: list, dates: list, mode):
     If by_component requested, collect estimates for issues components and return
     timeline {date: {component: estimate[days]}}.
     Issue in list should be yandex tracker reference."""
+    logging.info('Estimates calculation')
     if mode == 'queues':
-        cats = queues(issues, True)
+        cats = queues(issues)
     elif mode == 'components':
-        cats = components(issues, True)
+        cats = components(issues)
     else:
         cats = ['']
     with alive_bar(len(issues) * len(cats) * len(dates),
@@ -229,6 +232,8 @@ def estimate(issues: list, dates: list, mode):
 def precashe(issues, with_bar=False):
     """ Execute calls to all cashed functions"""
     if with_bar:
+        logging.info('Cashing started')
+    if with_bar:
         with alive_bar(3 * len(issues), title='Cashing', theme='classic') as bar:
             for issue in issues:
                 cashed_queues(issue)
@@ -236,7 +241,7 @@ def precashe(issues, with_bar=False):
                 cashed_components(issue)
                 bar()
                 if len(get_linked_issues(issue)) == 0:
-                    issue_sprints(issue)
+                    # issue_sprints(issue) - excluded, not used
                     _get_issue_times(issue)
                 else:
                     precashe(get_linked_issues(issue))
@@ -246,10 +251,12 @@ def precashe(issues, with_bar=False):
             cashed_queues(issue)
             cashed_components(issue)
             if len(get_linked_issues(issue)) == 0:
-                issue_sprints(issue)
+                # issue_sprints(issue) - excluded, not used
                 _get_issue_times(issue)
             else:
                 precashe(get_linked_issues(issue))
+    if with_bar:
+        logging.info('Cashing finished')
 
 
 def get_start_date(issues: list):
@@ -324,6 +331,7 @@ def _issue_burn_data(issue) -> dict:
                 if s['kind'] == 'estimation' and s['date'].date() <= start_date.date()), 0)
     # if task not estimated before start - find any first estimation
     if est == 0:
+        logging.info(f'{issue.type.key} {issue.key} was not estimated before start.')
         est = next((s['value'] for s in reversed(_get_issue_times(issue))
                     if s['kind'] == 'estimation'), 0)
     return {'start': start_date.date(),
@@ -348,6 +356,7 @@ def issue_burn(issue, mode, cat, splash, default_comp=()):
         if len(get_linked_issues(issue)) == 0 and issue_valuable(issue):
             try:
                 b = _issue_burn_data(issue)
+                logging.info(f'{issue.type.key} {issue.key} burn measured to: %s', b)
                 se = b['estimate']/((b['end']-b['start']).days+1)
                 if splash:
                     pass
@@ -356,7 +365,7 @@ def issue_burn(issue, mode, cat, splash, default_comp=()):
                 else:
                     counter.update({b['end']: b['estimate']})
             except StopIteration:
-                pass
+                logging.error(f'{issue.type.key} {issue.key} have not start or finish data, ignored.')
         else:
             for linked in get_linked_issues(issue):
                 counter.update(issue_burn(linked, mode, cat, splash,
@@ -368,10 +377,11 @@ def burn(issues: list, mode, splash):
     """Return burn (closed initial estimate) of issues and its descendants, sorted by mode
     {category : {date : closed estimate}}
     Unclosed, canceled tasks are ignored."""
+    logging.info('Burn calculation, splash mode: %s', splash)
     if mode == 'queues':
-        cats = queues(issues, True)
+        cats = queues(issues)
     elif mode == 'components':
-        cats = components(issues, True)
+        cats = components(issues)
     else:
         cats = ['']
     with alive_bar(len(issues) * len(cats),

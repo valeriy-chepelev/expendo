@@ -12,6 +12,7 @@ import argparse
 from prettytable import PrettyTable
 from tracker_data import epics, stories, get_start_date, estimate, spent, precashe, burn
 from prediction import trends
+import logging
 
 
 def read_config(filename):
@@ -20,16 +21,6 @@ def read_config(filename):
     assert 'token' in config['DEFAULT']
     assert 'org' in config['DEFAULT']
     return config['DEFAULT']
-
-
-# Sprints info
-
-
-def sprint_info(client):
-    table = PrettyTable()
-    for s in client.sprints:
-        table.add_row([s.name, dt.datetime.strptime(s.startDate, '%Y-%m-%d').date()])
-    print(table)
 
 
 # Data output routines
@@ -95,10 +86,11 @@ def table_velocity(d: dict):
 
 
 def tabulate_velocity(d: dict):
-    print('Date', *d.keys(), 'Summary', sep='\t')
+    print('Date', *d.keys(), 'Summary', sep=',')
     for date in d[next(iter(d))].keys():
-        values = [d[row][date] for row in iter(d)]
-        print(date.strftime("%d.%m.%y"), *values, sum(values), sep='\t')
+        summ = sum([d[row][date] for row in iter(d)])
+        values = [f'{d[row][date]:.1f}' for row in iter(d)]
+        print(date.strftime("%d.%m.%y"), *values, f'{summ:.1f}', sep=',')
 
 
 def table_data(d: dict):
@@ -113,10 +105,10 @@ def table_data(d: dict):
 
 
 def tabulate_data(d: dict):
-    print('Date', "\t".join(d[next(iter(d))].keys()), 'Summary', sep='\t')
+    print('Date', ",".join(d[next(iter(d))].keys()), 'Summary', sep=',')
     for date in d.keys():
-        sval = "\t".join([str(val) for val in d[date].values()])
-        print(date.strftime("%d.%m.%y"), sval, sum(d[date].values()), sep='\t')
+        sval = ",".join([str(val) for val in d[date].values()])
+        print(date.strftime("%d.%m.%y"), sval, sum(d[date].values()), sep=',')
 
 
 # g_project = "MT SystemeLogic(ACB)"  # Temporary, will be moved to argument parser
@@ -132,11 +124,6 @@ def tabulate_data(d: dict):
 
 def define_parser():
     """ Return CLI arguments parser
-    CLI request cases
-    expendo project [all] [COMPONENTS] [TODAY] [DUMP]
-    expendo project velocities EPICS WEEK PLOT
-    expendo project spends STORIES [TODAY] [CSV]
-    expendo (MTPD-01,MTPD-02) estimates [COMPONENTS] all [DUMP]
     """
     parser = argparse.ArgumentParser(description='Expendo v.1.0 - Yandex Tracker stat crawler by VCh.',
                                      epilog='Tracker connection settings and params in "expendo.ini".')
@@ -152,10 +139,10 @@ def define_parser():
                         help='make estimate trend projections for TREND issue')
     parser.add_argument('-p', '--plot', default=False, action='store_true',
                         help='plot charts widgets')
-    parser.add_argument('-d', '--dump', default=False, action='store_true',
-                        help='dump data in tab-delimited format instead of pretty tables (for lazy Excel copy-pasting)')
+    parser.add_argument('-c', '--csv', default=False, action='store_true',
+                        help='dump data in CSV format instead of pretty tables (for lazy Excel copy-pasting)')
     parser.add_argument('--debug', default=False, action='store_true',
-                        help='logging in debug mode (include issues info)')
+                        help='logging in debug mode (include tracker and issues info)')
     return parser
 
 
@@ -212,9 +199,9 @@ def _date_shift(date, shift):
 
 def tabulate_trend(trend):
     print(f'{trend["name"]} estimate projection:')
-    middays = math.ceil(-trend['mid'][1] / trend['mid'][0])  # x(0) = -b/a for y(x)=ax+b
-    mindays = math.ceil(-trend['min'][1] / trend['min'][0])  # x(0) = -b/a for y(x)=ax+b
-    maxdays = math.ceil(-trend['max'][1] / trend['max'][0])  # x(0) = -b/a for y(x)=ax+b
+    mid_days = math.ceil(-trend['mid'][1] / trend['mid'][0])  # x(0) = -b/a for y(x)=ax+b
+    min_days = math.ceil(-trend['min'][1] / trend['min'][0])  # x(0) = -b/a for y(x)=ax+b
+    max_days = math.ceil(-trend['max'][1] / trend['max'][0])  # x(0) = -b/a for y(x)=ax+b
     table = PrettyTable()
     table.field_names = ['Value', 'Early', 'Average', 'Lately']
     table.add_row(['Velocity, hrs/sprint',
@@ -222,9 +209,9 @@ def tabulate_trend(trend):
                    f"{14 * trend['mid'][0]:.1f}",
                    f"{14 * trend['max'][0]:.1f}"])
     table.add_row(['Projected finish',
-                   s if type(s := _date_shift(trend['start'], mindays)) == str else s.strftime("%d.%m.%y"),
-                   s if type(s := _date_shift(trend['start'], middays)) == str else s.strftime("%d.%m.%y"),
-                   s if type(s := _date_shift(trend['start'], maxdays)) == str else s.strftime("%d.%m.%y")])
+                   s if type(s := _date_shift(trend['start'], min_days)) == str else s.strftime("%d.%m.%y"),
+                   s if type(s := _date_shift(trend['start'], mid_days)) == str else s.strftime("%d.%m.%y"),
+                   s if type(s := _date_shift(trend['start'], max_days)) == str else s.strftime("%d.%m.%y")])
     print(table)
 
 
@@ -242,12 +229,12 @@ def trend_funnel(est, row_name):
                     today.date() if type(d := _date_shift(tr['start'],
                                                           math.ceil(-tr['max'][1] / tr['max'][0]))) == str else d)
                    for date in dates]
-    mind, midd, maxd = zip(*predictions)
+    min_d, mid_d, max_d = zip(*predictions)
     p_range = [(today.date() - date.date()).days for date in dates]
     fig, ax = plt.subplots()
-    ax.plot(p_range, midd, color='k', linewidth=1)
-    ax.plot(p_range, mind, linestyle='dashed', color='k', linewidth=1)
-    ax.plot(p_range, maxd, linestyle='dashed', color='k', linewidth=1)
+    ax.plot(p_range, mid_d, color='k', linewidth=1)
+    ax.plot(p_range, min_d, linestyle='dashed', color='k', linewidth=1)
+    ax.plot(p_range, max_d, linestyle='dashed', color='k', linewidth=1)
     formatter = DateFormatter("%d.%m.%y")
     ax.yaxis.set_major_formatter(formatter)
     plt.xlabel('Retro range [days]')
@@ -257,12 +244,18 @@ def trend_funnel(est, row_name):
 
 
 def main():
+    args = define_parser().parse_args()  # get CLI arguments
     # TODO: logging
+    logging.basicConfig(filename='expendo.log',
+                        filemode='a',
+                        format='%(asctime)s %(name)s %(levelname)s %(message)s',
+                        datefmt='%H:%M:%S',
+                        level=logging.INFO if args.debug else logging.ERROR)
+    logging.info('Started with arguments: %s', vars(args))
     cfg = read_config('expendo.ini')
     client = TrackerClient(cfg['token'], cfg['org'])
     if client.myself is None:
         raise Exception('Unable to connect Yandex Tracker.')
-    args = define_parser().parse_args()  # get CLI arguments
     issues = get_scope(client, args)  # get issues objects
     precashe(issues, True)
     dates = get_dates(issues, args)  # get date range
@@ -270,7 +263,7 @@ def main():
     if args.parameter in ['spent', 'all']:
         spt = spent(issues, dates, args.grouping)
         print('Spends:')
-        if args.dump:
+        if args.csv:
             tabulate_data(spt)
         else:
             table_data(spt)
@@ -279,7 +272,7 @@ def main():
     if args.parameter in ['estimate', 'all']:
         est = estimate(issues, dates, args.grouping)
         print('Estimates:')
-        if args.dump:
+        if args.csv:
             tabulate_data(est)
         else:
             table_data(est)
@@ -293,13 +286,14 @@ def main():
                     trend_funnel(est, args.trend)
             except Exception as ex:
                 print('Execution error:', ex)
+                logging.exception('Trends error')
         # Plot estimates with trends
         if args.plot:
             plot_details('Estimates', est, tr)
     if args.parameter in ['burn', 'all']:
         brn = burn(issues, args.grouping, False)
         print('Burned estimates:')
-        if args.dump:
+        if args.csv:
             tabulate_velocity(brn)
         else:
             table_velocity(brn)
@@ -308,7 +302,7 @@ def main():
     if args.parameter in ['velocity', 'all']:
         vel = burn(issues, args.grouping, True)
         print('Velocity of estimates burning:')
-        if args.dump:
+        if args.csv:
             tabulate_velocity(vel)
         else:
             table_velocity(vel)
@@ -322,20 +316,10 @@ def main():
     input('Press any key to close...')  # for interactive mode
 
 
-def some_issues(client, keys: list):
-    return [client.issues[key] for key in keys]
-
-
-def dev(issues):
-    for issue in issues:
-        print(issue.key, issue.summary)
-
-
 if __name__ == '__main__':
-    # main()
     try:
         main()
-        pass
     except Exception as e:
         print('Execution error:', e)
+        logging.exception('Common error')
         input('Press any key to close...')
