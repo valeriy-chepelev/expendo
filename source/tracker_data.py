@@ -1,10 +1,34 @@
 import datetime as dt
 import math
 from functools import lru_cache
+from joblib import Memory
 from alive_progress import alive_bar
 from collections import Counter
 from dateutil.rrule import rrule, DAILY
 import logging
+
+# DRIVE CACHE INIT AND CLEARING
+
+cache = Memory('expendo_cache/', verbose=0)
+
+
+@cache.cache
+def _cache_date():
+    print('cached date calculated')
+    return dt.datetime.now(dt.timezone.utc).date()
+
+
+if _cache_date() != dt.datetime.now(dt.timezone.utc).date():
+    print('CLEARING CACHE')
+    cache.clear(warn=False)
+_cache_date()
+
+
+def clear_cache():
+    logging.info('Drive cache cleared.')
+    cache.clear(warn=False)
+
+# ==================================================
 
 
 def _get_iso_split(s, split):
@@ -43,7 +67,8 @@ def iso_days(s):
     return math.ceil(iso_hrs(s) / 8)
 
 
-@lru_cache(maxsize=None)  # Cashing access to YT
+@lru_cache(maxsize=256)  # Caching access to YT
+@cache.cache
 def _get_issue_times(issue):
     """ Return reverse-sorted by time list of issue spends, estimates, status and resolution changes"""
     sp = [{'date': dt.datetime.strptime(log.updatedAt, '%Y-%m-%dT%H:%M:%S.%f%z'),
@@ -56,7 +81,8 @@ def _get_issue_times(issue):
     return sp
 
 
-@lru_cache(maxsize=None)  # Cashing access to YT
+@lru_cache(maxsize=256)  # Caching access to YT
+@cache.cache
 def get_linked_issues(issue):
     """ Return list of issue linked subtasks """
     return [link.object for link in issue.links
@@ -229,12 +255,11 @@ def estimate(issues: list, dates: list, mode):
                     for date in dates}
 
 
-def precashe(issues, with_bar=False):
+def precache(issues, with_bar=False):
     """ Execute calls to all cashed functions"""
     if with_bar:
-        logging.info('Cashing started')
-    if with_bar:
-        with alive_bar(3 * len(issues), title='Cashing', theme='classic') as bar:
+        logging.info('Caching started')
+        with alive_bar(3 * len(issues), title='Caching', theme='classic') as bar:
             for issue in issues:
                 cashed_queues(issue)
                 bar()
@@ -244,8 +269,9 @@ def precashe(issues, with_bar=False):
                     # issue_sprints(issue) - excluded, not used
                     _get_issue_times(issue)
                 else:
-                    precashe(get_linked_issues(issue))
+                    precache(get_linked_issues(issue))
                 bar()
+        logging.info('Caching finished')
     else:
         for issue in issues:
             cashed_queues(issue)
@@ -254,9 +280,7 @@ def precashe(issues, with_bar=False):
                 # issue_sprints(issue) - excluded, not used
                 _get_issue_times(issue)
             else:
-                precashe(get_linked_issues(issue))
-    if with_bar:
-        logging.info('Cashing finished')
+                precache(get_linked_issues(issue))
 
 
 def get_start_date(issues: list):
@@ -357,7 +381,7 @@ def issue_burn(issue, mode, cat, splash, default_comp=()):
             try:
                 b = _issue_burn_data(issue)
                 logging.info(f'{issue.type.key} {issue.key} burn measured to: %s', b)
-                se = b['estimate']/((b['end']-b['start']).days+1)
+                se = b['estimate'] / ((b['end'] - b['start']).days + 1)
                 if splash:
                     pass
                     counter.update({date.date(): se

@@ -10,7 +10,7 @@ from matplotlib.dates import DateFormatter
 import configparser
 import argparse
 from prettytable import PrettyTable
-from tracker_data import epics, stories, get_start_date, estimate, spent, precashe, burn
+from tracker_data import epics, stories, get_start_date, estimate, spent, precache, burn, clear_cache
 from prediction import trends
 import logging
 
@@ -245,7 +245,6 @@ def trend_funnel(est, row_name):
 
 def main():
     args = define_parser().parse_args()  # get CLI arguments
-    # TODO: logging
     logging.basicConfig(filename='expendo.log',
                         filemode='a',
                         format='%(asctime)s %(name)s %(levelname)s %(message)s',
@@ -257,7 +256,7 @@ def main():
     if client.myself is None:
         raise Exception('Unable to connect Yandex Tracker.')
     issues = get_scope(client, args)  # get issues objects
-    precashe(issues, True)
+    precache(issues, True)
     dates = get_dates(issues, args)  # get date range
     matplotlib.use('TkAgg')
     if args.parameter in ['spent', 'all']:
