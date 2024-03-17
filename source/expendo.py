@@ -10,7 +10,7 @@ from matplotlib.dates import DateFormatter
 import configparser
 import argparse
 from prettytable import PrettyTable
-from tracker_data import epics, stories, get_start_date, estimate, spent, precache, burn, clear_cache, cache_info
+from tracker_data import epics, stories, get_start_date, estimate, spent, precache, burn, clear_cache, cache_info, components, queues
 from prediction import trends
 import logging
 
@@ -164,12 +164,18 @@ def get_scope(client, args):
             print('Crawling issues:')
         except NotFound:
             raise Exception(f'"{args.scope}" task(s) not found in tracker.')
-    table = PrettyTable()
-    table.field_names = ['Key', 'Type', 'Summary']
+    issue_table = PrettyTable()
+    issue_table.field_names = ['Key', 'Type', 'Summary']
     for issue in issues:
-        table.add_row([issue.key, issue.type.key, issue.summary])
-    table.align = 'l'
-    print(table)
+        issue_table.add_row([issue.key, issue.type.key, issue.summary])
+    issue_table.align = 'l'
+    print(issue_table)
+    if args.grouping == 'components':
+        comp = components(issues, w_bar=True)
+        print(f'Issues have {len(comp)} component(s): {",".join(comp)}.')
+    elif args. grouping == 'queues':
+        qu = queues(issues, w_bar=True)
+        print(f'Issues are located in {len(qu)} queue(s): {",".join(qu)}.')
     return issues
 
 
@@ -186,8 +192,10 @@ def get_dates(issues, args, sprint_days=14) -> list:
         start_date = today + relativedelta(months=-3)
     elif args.timespan == 'sprint':
         start_date = today + relativedelta(days=-sprint_days)
-    else:
+    elif args.parameter in ['spent', 'estimate', 'all']:
         start_date = get_start_date(issues)
+    else:
+        start_date = today + relativedelta(weeks=-1)
     return list(rrule(DAILY, dtstart=start_date, until=today))
 
 

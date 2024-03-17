@@ -111,13 +111,11 @@ def components(issues: list, w_bar=False):
     if w_bar:
         with alive_bar(len(issues), title='Components', theme='classic') as bar:
             for issue in issues:
-                comp.update({comp.name for comp in issue.components})
-                comp.update(set(components(get_linked_issues(issue, issue.key))))
+                comp.update(set(cached_components(issue, issue.key)))
                 bar()
     else:
         for issue in issues:
-            comp.update({comp.name for comp in issue.components})
-            comp.update(set(components(get_linked_issues(issue, issue.key))))
+            comp.update(set(cached_components(issue, issue.key)))
     return sorted(list(comp))
 
 
@@ -126,7 +124,10 @@ def components(issues: list, w_bar=False):
 def cached_components(issue, key):
     """ Return one issue components """
     assert key == issue.key
-    return components([issue])
+    comp = {comp.name for comp in issue.components}
+    comp.update({c for linked in get_linked_issues(issue, issue.key)
+                 for c in cached_components(linked, linked.key)})
+    return list(comp)
 
 
 def queues(issues: list, w_bar=False):
@@ -135,13 +136,11 @@ def queues(issues: list, w_bar=False):
     if w_bar:
         with alive_bar(len(issues), title='Queues', theme='classic') as bar:
             for issue in issues:
-                q.add(issue.queue.key)
-                q.update(set(queues(get_linked_issues(issue, issue.key))))
+                q.update(set(cached_queues(issue, issue.key)))
                 bar()
     else:
         for issue in issues:
-            q.add(issue.queue.key)
-            q.update(set(queues(get_linked_issues(issue, issue.key))))
+            q.update(set(cached_queues(issue, issue.key)))
     return sorted(list(q))
 
 
@@ -150,7 +149,10 @@ def queues(issues: list, w_bar=False):
 def cached_queues(issue, key):
     """ Return one issue queues """
     assert key == issue.key
-    return queues([issue])
+    qu = {issue.queue.key}
+    qu.update({q for linked in get_linked_issues(issue, issue.key)
+              for q in cached_queues(linked, linked.key)})
+    return list(qu)
 
 
 def issue_spent(issue, date, mode, cat, default_comp=()):
@@ -209,9 +211,9 @@ def spent(issues: list, dates: list, mode):
     Issue in list should be yandex tracker reference."""
     logging.info('Spends calculation')
     if mode == 'queues':
-        cats = queues(issues, w_bar=True)
+        cats = queues(issues)
     elif mode == 'components':
-        cats = components(issues, w_bar=True)
+        cats = components(issues)
     else:
         cats = ['']
     with alive_bar(len(issues) * len(cats) * len(dates),
@@ -239,9 +241,9 @@ def estimate(issues: list, dates: list, mode):
     Issue in list should be yandex tracker reference."""
     logging.info('Estimates calculation')
     if mode == 'queues':
-        cats = queues(issues, w_bar=True)
+        cats = queues(issues)
     elif mode == 'components':
-        cats = components(issues, w_bar=True)
+        cats = components(issues)
     else:
         cats = ['']
     with alive_bar(len(issues) * len(cats) * len(dates),
@@ -376,9 +378,9 @@ def burn(issues: list, mode, splash):
     Unclosed, canceled tasks are ignored."""
     logging.info('Burn calculation, splash mode: %s', splash)
     if mode == 'queues':
-        cats = queues(issues, w_bar=True)
+        cats = queues(issues)
     elif mode == 'components':
-        cats = components(issues, w_bar=True)
+        cats = components(issues)
     else:
         cats = ['']
     with alive_bar(len(issues) * len(cats),
