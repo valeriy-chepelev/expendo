@@ -10,7 +10,7 @@ from matplotlib.dates import DateFormatter
 import configparser
 import argparse
 from prettytable import PrettyTable
-from tracker_data import epics, stories, get_start_date, estimate, spent, precache, burn, clear_cache
+from tracker_data import epics, stories, get_start_date, estimate, spent, precache, burn, clear_cache, cache_info
 from prediction import trends
 import logging
 
@@ -141,6 +141,8 @@ def define_parser():
                         help='plot charts widgets')
     parser.add_argument('-c', '--csv', default=False, action='store_true',
                         help='dump data in CSV format instead of pretty tables (for lazy Excel copy-pasting)')
+    parser.add_argument('--recache', default=False, action='store_true',
+                        help='clear local cache (cleared daily)')
     parser.add_argument('--debug', default=False, action='store_true',
                         help='logging in debug mode (include tracker and issues info)')
     return parser
@@ -150,7 +152,7 @@ def get_scope(client, args):
     """Return list of scoped issue objects."""
     if args.scope in [p.name for p in client.projects]:
         # if argument is a project name
-        print(f'Crawling tracker in project "{args.scope}":')
+        print(f'Crawling project "{args.scope}":')
         if args.grouping == stories:
             issues = stories(client, args.scope)  # Project top-level Stories for the 'stories'
         else:
@@ -159,7 +161,7 @@ def get_scope(client, args):
     else:
         try:
             issues = [client.issues[k] for k in str(args.scope).split(',')]
-            print('Crawling tracker in issues:')
+            print('Crawling issues:')
         except NotFound:
             raise Exception(f'"{args.scope}" task(s) not found in tracker.')
     table = PrettyTable()
@@ -255,8 +257,10 @@ def main():
     client = TrackerClient(cfg['token'], cfg['org'])
     if client.myself is None:
         raise Exception('Unable to connect Yandex Tracker.')
+    if args.recache:
+        clear_cache()
     issues = get_scope(client, args)  # get issues objects
-    precache(issues, True)
+    # precache(issues, True)
     dates = get_dates(issues, args)  # get date range
     matplotlib.use('TkAgg')
     if args.parameter in ['spent', 'all']:
@@ -309,6 +313,7 @@ def main():
             plot_velocity('Burning velocity', vel, '[hrs/day]')
 
     # plt.ion()  # Turn on interactive plotting - not working, requires events loop for open plots
+    logging.info('Cache status: %s', cache_info())
     if args.plot:
         print('Close plot widget(s) to continue...')
     plt.show()
