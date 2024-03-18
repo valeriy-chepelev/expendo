@@ -10,7 +10,8 @@ from matplotlib.dates import DateFormatter
 import configparser
 import argparse
 from prettytable import PrettyTable
-from tracker_data import epics, stories, get_start_date, estimate, spent, precache, burn, clear_cache, cache_info, components, queues
+from tracker_data import epics, stories, get_start_date, estimate, spent, burn, components, queues
+from tracker_data import clear_cache, cache_info
 from prediction import trends
 import logging
 
@@ -125,7 +126,7 @@ def tabulate_data(d: dict):
 def define_parser():
     """ Return CLI arguments parser
     """
-    parser = argparse.ArgumentParser(description='Expendo v.1.0 - Yandex Tracker stat crawler by VCh.',
+    parser = argparse.ArgumentParser(description='Expendo v.1.1 - Yandex Tracker stat crawler by VCh.',
                                      epilog='Tracker connection settings and params in "expendo.ini".')
     parser.add_argument('scope',
                         help='project name or comma-separated issues keys (no space allowed)')
