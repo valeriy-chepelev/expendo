@@ -6,6 +6,7 @@ from alive_progress import alive_bar
 from collections import Counter
 from dateutil.rrule import rrule, DAILY
 import logging
+from issue_cache import issue_cache
 
 # DRIVE CACHE INIT AND CLEARING
 
@@ -68,10 +69,9 @@ def iso_days(s):
 
 
 @lru_cache(maxsize=None)  # Caching access to YT
-@cache.cache(ignore=['issue'])
-def _get_issue_times(issue, key):
+@issue_cache('cache')
+def _get_issue_times(issue):
     """ Return reverse-sorted by time list of issue spends, estimates, status and resolution changes"""
-    assert key == issue.key
     sp = [{'date': dt.datetime.strptime(log.updatedAt, '%Y-%m-%dT%H:%M:%S.%f%z'),
            'kind': field['field'].id,
            'value': iso_hrs(field['to']) if field['field'].id in ['spent', 'estimation'] \
@@ -168,7 +168,7 @@ def issue_spent(issue, date, mode, cat, default_comp=()):
     if (cat == '' or cat in own_cat) or \
             (mode not in ['components', 'queues']) or \
             (len(own_cat) == 0 and cat in default_comp):
-        spends = _get_issue_times(issue, issue.key)
+        spends = _get_issue_times(issue)
         sp = next((s['value'] for s in spends
                    if s['kind'] == 'spent' and s['date'].date() <= date.date()), 0) + \
              sum([issue_spent(linked, date, mode, cat,
@@ -192,7 +192,7 @@ def issue_estimate(issue, date, mode, cat, default_comp=()):
             (mode not in ['components', 'queues']) or \
             (len(own_cat) == 0 and cat in default_comp):
         if len(get_linked_issues(issue, issue.key)) == 0:
-            estimates = _get_issue_times(issue, issue.key)
+            estimates = _get_issue_times(issue)
             est = next((s['value'] for s in estimates
                         if s['kind'] == 'estimation' and s['date'].date() <= date.date()), 0)
         else:
@@ -275,7 +275,7 @@ def precache(issues, with_bar=False):
                 bar()
                 if len(get_linked_issues(issue, issue.key)) == 0:
                     # issue_sprints(issue) - excluded, not used
-                    _get_issue_times(issue, issue.key)
+                    _get_issue_times(issue)
                 else:
                     precache(get_linked_issues(issue, issue.key))
                 bar()
@@ -286,7 +286,7 @@ def precache(issues, with_bar=False):
             cached_components(issue, issue.key)
             if len(get_linked_issues(issue, issue.key)) == 0:
                 # issue_sprints(issue) - excluded, not used
-                _get_issue_times(issue, issue.key)
+                _get_issue_times(issue)
             else:
                 precache(get_linked_issues(issue, issue.key))
 
@@ -296,7 +296,7 @@ def get_start_date(issues: list):
     with alive_bar(len(issues), title='Start date', theme='classic') as bar:
         try:
             d = min([t[-1]['date'] for issue in issues
-                     if (len(t := _get_issue_times(issue, issue.key)) > 0) ^ (bar() in ['nothing'])])
+                     if (len(t := _get_issue_times(issue)) > 0) ^ (bar() in ['nothing'])])
         except ValueError:
             d = dt.datetime.now(dt.timezone.utc)
     return d
@@ -321,18 +321,18 @@ def _issue_burn_data(issue) -> dict:
     """Return start, end and initial estimate value at the issue start moment.
     If unable to detect start or end - raises StopIteration."""
     # start date is date of first InProgress status
-    start_date = next(t['date'] for t in reversed(_get_issue_times(issue, issue.key))
+    start_date = next(t['date'] for t in reversed(_get_issue_times(issue))
                       if t['kind'] == 'status' and t['value'] in ['inProgress', 'testing'])
     # final date is date of last Fixed resolution
-    final_date = next(t['date'] for t in _get_issue_times(issue, issue.key)
+    final_date = next(t['date'] for t in _get_issue_times(issue)
                       if t['kind'] == 'resolution' and t['value'] in ['fixed'])
     # find last estimation before start
-    est = next((s['value'] for s in _get_issue_times(issue, issue.key)
+    est = next((s['value'] for s in _get_issue_times(issue)
                 if s['kind'] == 'estimation' and s['date'].date() <= start_date.date()), 0)
     # if task not estimated before start - find any first estimation
     if est == 0:
         logging.info(f'{issue.type.key} {issue.key} was not estimated before start.')
-        est = next((s['value'] for s in reversed(_get_issue_times(issue, issue.key))
+        est = next((s['value'] for s in reversed(_get_issue_times(issue))
                     if s['kind'] == 'estimation'), 0)
     return {'start': start_date.date(),
             'end': final_date.date(),

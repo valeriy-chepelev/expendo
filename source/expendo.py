@@ -14,6 +14,7 @@ from tracker_data import epics, stories, get_start_date, estimate, spent, burn, 
 from tracker_data import clear_cache, cache_info
 from prediction import trends
 import logging
+from issue_cache import clear_issue_cache
 
 
 def read_config(filename):
@@ -332,6 +333,7 @@ def main():
 if __name__ == '__main__':
     try:
         main()
+        # clear_issue_cache('cache')
     except Exception as e:
         print('Execution error:', e)
         logging.exception('Common error')
