@@ -338,3 +338,6 @@ if __name__ == '__main__':
         print('Execution error:', e)
         logging.exception('Common error')
         input('Press any key to close...')
+
+
+"""Memorize: command to build exe with pyinstaller should include '--collect-data grapheme' """
