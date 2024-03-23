@@ -1,35 +1,11 @@
 import datetime as dt
 import math
 from functools import lru_cache
-from joblib import Memory
 from alive_progress import alive_bar
 from collections import Counter
 from dateutil.rrule import rrule, DAILY
 import logging
 from issue_cache import issue_cache
-
-# DRIVE CACHE INIT AND CLEARING
-
-cache = Memory('expendo_cache/', verbose=0)
-
-
-@cache.cache
-def _cache_date():
-    return dt.datetime.now(dt.timezone.utc).date()
-
-
-def clear_cache():
-    logging.info('Drive cache clear.')
-    cache.clear(warn=False)
-    print('Local cache to be updated for actual data.')
-
-
-if _cache_date() != dt.datetime.now(dt.timezone.utc).date():
-    clear_cache()
-_cache_date()
-
-
-# ==================================================
 
 
 def _get_iso_split(s, split):
@@ -69,7 +45,7 @@ def iso_days(s):
 
 
 @lru_cache(maxsize=None)  # Caching access to YT
-@issue_cache('cache')
+@issue_cache('cache/gti')
 def _get_issue_times(issue):
     """ Return reverse-sorted by time list of issue spends, estimates, status and resolution changes"""
     sp = [{'date': dt.datetime.strptime(log.updatedAt, '%Y-%m-%dT%H:%M:%S.%f%z'),
@@ -83,10 +59,9 @@ def _get_issue_times(issue):
 
 
 @lru_cache(maxsize=None)  # Caching access to YT
-@cache.cache(ignore=['issue'])
-def get_linked_issues(issue, key):
+@issue_cache('cache/gli')
+def get_linked_issues(issue):
     """ Return list of issue linked subtasks """
-    assert key == issue.key
     return [link.object for link in issue.links
             if link.type.id == 'subtask' and
             dict(outward=link.type.inward, inward=link.type.outward)[link.direction] == 'Подзадача']
@@ -111,22 +86,21 @@ def components(issues: list, w_bar=False):
     if w_bar:
         with alive_bar(len(issues), title='Components', theme='classic') as bar:
             for issue in issues:
-                comp.update(set(cached_components(issue, issue.key)))
+                comp.update(set(cached_components(issue)))
                 bar()
     else:
         for issue in issues:
-            comp.update(set(cached_components(issue, issue.key)))
+            comp.update(set(cached_components(issue)))
     return sorted(list(comp))
 
 
 @lru_cache(maxsize=None)  # Caching access to YT
-@cache.cache(ignore=['issue'])
-def cached_components(issue, key):
+@issue_cache('cache/comp')
+def cached_components(issue):
     """ Return one issue components """
-    assert key == issue.key
     comp = {comp.name for comp in issue.components}
-    comp.update({c for linked in get_linked_issues(issue, issue.key)
-                 for c in cached_components(linked, linked.key)})
+    comp.update({c for linked in get_linked_issues(issue)
+                 for c in cached_components(linked)})
     return list(comp)
 
 
@@ -136,22 +110,21 @@ def queues(issues: list, w_bar=False):
     if w_bar:
         with alive_bar(len(issues), title='Queues', theme='classic') as bar:
             for issue in issues:
-                q.update(set(cached_queues(issue, issue.key)))
+                q.update(set(cached_queues(issue)))
                 bar()
     else:
         for issue in issues:
-            q.update(set(cached_queues(issue, issue.key)))
+            q.update(set(cached_queues(issue)))
     return sorted(list(q))
 
 
 @lru_cache(maxsize=None)  # Caching access to YT
-@cache.cache(ignore=['issue'])
-def cached_queues(issue, key):
+@issue_cache('cache/que')
+def cached_queues(issue):
     """ Return one issue queues """
-    assert key == issue.key
     qu = {issue.queue.key}
-    qu.update({q for linked in get_linked_issues(issue, issue.key)
-              for q in cached_queues(linked, linked.key)})
+    qu.update({q for linked in get_linked_issues(issue)
+              for q in cached_queues(linked)})
     return list(qu)
 
 
@@ -159,9 +132,9 @@ def issue_spent(issue, date, mode, cat, default_comp=()):
     """ Return summary spent of issue (hours) including spent of all child issues,
     due to the date, containing specified component."""
     if mode == 'components':
-        own_cat = cached_components(issue, issue.key)
+        own_cat = cached_components(issue)
     elif mode == 'queues':
-        own_cat = cached_queues(issue, issue.key)
+        own_cat = cached_queues(issue)
     else:
         own_cat = list()
     sp = 0
@@ -174,7 +147,7 @@ def issue_spent(issue, date, mode, cat, default_comp=()):
              sum([issue_spent(linked, date, mode, cat,
                               own_cat if mode == 'components' and len(own_cat) > 0 \
                                   else default_comp)
-                  for linked in get_linked_issues(issue, issue.key)])
+                  for linked in get_linked_issues(issue)])
     return sp
 
 
@@ -182,16 +155,16 @@ def issue_estimate(issue, date, mode, cat, default_comp=()):
     """ Return estimate of issue (hours) as summary estimates of all child issues,
     for the date, containing specified component."""
     if mode == 'components':
-        own_cat = cached_components(issue, issue.key)
+        own_cat = cached_components(issue)
     elif mode == 'queues':
-        own_cat = cached_queues(issue, issue.key)
+        own_cat = cached_queues(issue)
     else:
         own_cat = list()
     est = 0
     if (cat == '' or cat in own_cat) or \
             (mode not in ['components', 'queues']) or \
             (len(own_cat) == 0 and cat in default_comp):
-        if len(get_linked_issues(issue, issue.key)) == 0:
+        if len(get_linked_issues(issue)) == 0:
             estimates = _get_issue_times(issue)
             est = next((s['value'] for s in estimates
                         if s['kind'] == 'estimation' and s['date'].date() <= date.date()), 0)
@@ -199,7 +172,7 @@ def issue_estimate(issue, date, mode, cat, default_comp=()):
             est = sum([issue_estimate(linked, date, mode, cat,
                                       own_cat if mode == 'components' and len(own_cat) > 0 \
                                           else default_comp)
-                       for linked in get_linked_issues(issue, issue.key)])
+                       for linked in get_linked_issues(issue)])
     return est
 
 
@@ -263,34 +236,6 @@ def estimate(issues: list, dates: list, mode):
                     for date in dates}
 
 
-def precache(issues, with_bar=False):
-    """ Execute calls to all cashed functions"""
-    if with_bar:
-        logging.info('Caching started')
-        with alive_bar(3 * len(issues), title='Caching', theme='classic') as bar:
-            for issue in issues:
-                cached_queues(issue, issue.key)
-                bar()
-                cached_components(issue, issue.key)
-                bar()
-                if len(get_linked_issues(issue, issue.key)) == 0:
-                    # issue_sprints(issue) - excluded, not used
-                    _get_issue_times(issue)
-                else:
-                    precache(get_linked_issues(issue, issue.key))
-                bar()
-        logging.info('Caching finished')
-    else:
-        for issue in issues:
-            cached_queues(issue, issue.key)
-            cached_components(issue, issue.key)
-            if len(get_linked_issues(issue, issue.key)) == 0:
-                # issue_sprints(issue) - excluded, not used
-                _get_issue_times(issue)
-            else:
-                precache(get_linked_issues(issue, issue.key))
-
-
 def get_start_date(issues: list):
     """ Return start date (first estimation date) of issues """
     with alive_bar(len(issues), title='Start date', theme='classic') as bar:
@@ -344,16 +289,16 @@ def issue_burn(issue, mode, cat, splash, default_comp=()):
     Return {burn_date : initial estimate}
     Unclosed, canceled tasks are ignored."""
     if mode == 'components':
-        own_cat = cached_components(issue, issue.key)
+        own_cat = cached_components(issue)
     elif mode == 'queues':
-        own_cat = cached_queues(issue, issue.key)
+        own_cat = cached_queues(issue)
     else:
         own_cat = list()
     counter = Counter()
     if (cat == '' or cat in own_cat) or \
             (mode not in ['components', 'queues']) or \
             (len(own_cat) == 0 and cat in default_comp):
-        if len(get_linked_issues(issue, issue.key)) == 0 and issue_valuable(issue):
+        if len(get_linked_issues(issue)) == 0 and issue_valuable(issue):
             try:
                 b = _issue_burn_data(issue)
                 logging.info(f'{issue.type.key} {issue.key} burn measured to: %s', b)
@@ -366,7 +311,7 @@ def issue_burn(issue, mode, cat, splash, default_comp=()):
             except StopIteration:
                 logging.error(f'{issue.type.key} {issue.key} have not start or finish data, ignored.')
         else:
-            for linked in get_linked_issues(issue, issue.key):
+            for linked in get_linked_issues(issue):
                 counter.update(issue_burn(linked, mode, cat, splash,
                                           own_cat if mode == 'components' and len(own_cat) > 0 else default_comp))
     return dict(counter)
