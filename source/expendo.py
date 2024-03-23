@@ -1,5 +1,6 @@
 from yandex_tracker_client import TrackerClient
 from yandex_tracker_client.exceptions import NotFound
+from yandex_tracker_client.exceptions import BadRequest
 import datetime as dt
 from dateutil.rrule import rrule, DAILY
 from dateutil.relativedelta import relativedelta
@@ -163,8 +164,8 @@ def get_scope(client, args):
         try:
             issues = [client.issues[k] for k in str(args.scope).split(',')]
             print('Crawling issues:')
-        except NotFound:
-            raise Exception(f'"{args.scope}" task(s) not found in tracker.')
+        except (NotFound, BadRequest):
+            raise Exception(f'"{args.scope}" not found in tracker.')
     issue_table = PrettyTable()
     issue_table.field_names = ['Key', 'Type', 'Summary']
     for issue in issues:
