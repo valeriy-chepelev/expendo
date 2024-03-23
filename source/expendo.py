@@ -143,8 +143,6 @@ def define_parser():
                         help='plot charts widgets')
     parser.add_argument('-c', '--csv', default=False, action='store_true',
                         help='dump data in CSV format instead of pretty tables (for lazy Excel copy-pasting)')
-    parser.add_argument('--recache', default=False, action='store_true',
-                        help='clear local cache (cleared daily)')
     parser.add_argument('--debug', default=False, action='store_true',
                         help='logging in debug mode (include tracker and issues info)')
     return parser
@@ -267,10 +265,6 @@ def main():
     client = TrackerClient(cfg['token'], cfg['org'])
     if client.myself is None:
         raise Exception('Unable to connect Yandex Tracker.')
-    """if args.recache or not cache_actual('cache'):
-        print('Issues local cache will be updated.')
-        clear_cache('cache')
-        logging.info('Cache cleared.')"""
     issues = get_scope(client, args)  # get issues objects
     dates = get_dates(issues, args)  # get date range
     matplotlib.use('TkAgg')
