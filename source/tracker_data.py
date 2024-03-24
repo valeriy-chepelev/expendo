@@ -338,7 +338,7 @@ def burn(issues: list, mode, splash):
             v = {issue.key: issue_burn(issue, mode, '', splash)
                  for issue in issues if bar() not in ['nothing']}
     dates = sorted([key for value in v.values() for key in iter(value)])
-    zeroes = {date.date(): 0 for date in rrule(DAILY, dtstart=dates[0], until=dates[-1])}
+    zeroes = {date.date(): 0 for date in rrule(DAILY, dtstart=dates[0], until=dates[-1])} if len(dates) else {}
     return {row: dict(sorted(_sum_dict([zeroes, v[row]]).items())) for row in iter(v)}
 
 
