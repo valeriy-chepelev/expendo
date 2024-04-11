@@ -1,5 +1,3 @@
-from pprint import pprint
-
 def linreg(X, Y):
     """
     return a,b in solution to y = ax + b such that root-mean-square distance between trend line
