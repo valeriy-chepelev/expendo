@@ -15,6 +15,7 @@ from tracker_data import epics, stories, get_start_date, estimate, spent, burn, 
 from tracker_data import cache_info
 from prediction import trends
 import logging
+from entities import projects as get_projects
 
 
 def read_config(filename):
@@ -27,7 +28,7 @@ def read_config(filename):
 
 # Data output routines
 
-def plot_details(title: str, d: dict, trend):
+def plot_details(title: str, d: dict, trend=None, units='[hours]'):
     fig, ax = plt.subplots()
     trend_color = 'k'
     for row in d[next(iter(d))].keys():
@@ -52,47 +53,12 @@ def plot_details(title: str, d: dict, trend):
     formatter = DateFormatter("%d.%m.%y")
     ax.xaxis.set_major_formatter(formatter)
     plt.xlabel('Date')
-    plt.ylabel('[hours]')
+    plt.ylabel(units)
     plt.grid()
     plt.legend()
     plt.title(title)
     fig.autofmt_xdate()
     plt.draw()
-
-
-def plot_velocity(title: str, d: dict, y_units: str):
-    fig, ax = plt.subplots()
-    for row in iter(d):
-        if len(d[row]) > 0:
-            ax.plot(list(d[row].keys()), list(d[row].values()), label=row, linewidth=1)
-    formatter = DateFormatter("%d.%m.%y")
-    ax.xaxis.set_major_formatter(formatter)
-    plt.xlabel('Date')
-    plt.ylabel(y_units)
-    plt.grid()
-    plt.legend()
-    plt.title(title)
-    fig.autofmt_xdate()
-    plt.draw()
-
-
-def table_velocity(d: dict):
-    table = PrettyTable()
-    table.field_names = ['Date', *d.keys(), 'Summary']
-    for date in d[next(iter(d))].keys():
-        values = [d[row][date] for row in iter(d)]
-        table.add_row([date.strftime("%d.%m.%y"), *values, sum(values)])
-    table.float_format = '.1'
-    table.align = 'r'
-    print(table)
-
-
-def tabulate_velocity(d: dict):
-    print('Date', *d.keys(), 'Summary', sep=',')
-    for date in d[next(iter(d))].keys():
-        summ = sum([d[row][date] for row in iter(d)])
-        values = [f'{d[row][date]:.1f}' for row in iter(d)]
-        print(date.strftime("%d.%m.%y"), *values, f'{summ:.1f}', sep=',')
 
 
 def table_data(d: dict):
@@ -100,8 +66,9 @@ def table_data(d: dict):
     sk = [key for key in d[next(iter(d))].keys()]
     table.field_names = ['Date', *sk, 'Summary']
     for date in d.keys():
-        sv = [str(val) for val in d[date].values()]
-        table.add_row([date.strftime("%d.%m.%y"), *sv, sum(d[date].values())])
+        sv = [val for val in d[date].values()]
+        table.add_row([date.strftime("%d.%m.%y"), *sv, sum(sv)])
+    table.float_format = '.1'
     table.align = 'r'
     print(table)
 
@@ -109,8 +76,13 @@ def table_data(d: dict):
 def tabulate_data(d: dict):
     print('Date', ",".join(d[next(iter(d))].keys()), 'Summary', sep=',')
     for date in d.keys():
-        sval = ",".join([str(val) for val in d[date].values()])
-        print(date.strftime("%d.%m.%y"), sval, sum(d[date].values()), sep=',')
+        sval = ",".join([str(val) if isinstance(val, int) else f'{val:.1f}'
+                         for val in d[date].values()])
+        summ = sum(d[date].values())
+        print(date.strftime("%d.%m.%y"),
+              sval,
+              str(summ) if isinstance(summ, int) else f'{summ:.1f}',
+              sep=',')
 
 
 # g_project = "MT SystemeLogic(ACB)"  # Temporary, will be moved to argument parser
@@ -148,9 +120,9 @@ def define_parser():
     return parser
 
 
-def get_scope(client, args):
+def get_scope(client, args, token, org):
     """Return list of scoped issue objects."""
-    if args.scope in [p.name for p in client.projects]:
+    if args.scope in get_projects(token, org):
         # if argument is a project name
         print(f'Crawling project "{args.scope}":')
         if args.grouping == stories:
@@ -265,7 +237,7 @@ def main():
     client = TrackerClient(cfg['token'], cfg['org'])
     if client.myself is None:
         raise Exception('Unable to connect Yandex Tracker.')
-    issues = get_scope(client, args)  # get issues objects
+    issues = get_scope(client, args, cfg['token'], cfg['org'])  # get issues objects
     dates = get_dates(issues, args)  # get date range
     matplotlib.use('TkAgg')
     if args.parameter in ['spent', 'all']:
@@ -276,7 +248,7 @@ def main():
         else:
             table_data(spt)
         if args.plot:
-            plot_details('Spends', spt, None)
+            plot_details('Spends', spt)
     if args.parameter in ['estimate', 'all']:
         est = estimate(issues, dates, args.grouping)
         print('Estimates:')
@@ -299,23 +271,23 @@ def main():
         if args.plot:
             plot_details('Estimates', est, tr)
     if args.parameter in ['burn', 'all']:
-        brn = burn(issues, args.grouping, False)
+        brn = burn(issues, args.grouping, False, dates)
         print('Burned estimates:')
         if args.csv:
-            tabulate_velocity(brn)
+            tabulate_data(brn)
         else:
-            table_velocity(brn)
+            table_data(brn)
         if args.plot:
-            plot_velocity('Burned estimates', brn, '[hrs]')
+            plot_details('Burned estimates', brn)
     if args.parameter in ['velocity', 'all']:
-        vel = burn(issues, args.grouping, True)
+        vel = burn(issues, args.grouping, True, dates)
         print('Velocity of estimates burning:')
         if args.csv:
-            tabulate_velocity(vel)
+            tabulate_data(vel)
         else:
-            table_velocity(vel)
+            table_data(vel)
         if args.plot:
-            plot_velocity('Burning velocity', vel, '[hrs/day]')
+            plot_details('Burning velocity', vel, units='[hsr/day]')
 
     # plt.ion()  # Turn on interactive plotting - not working, requires events loop for open plots
     logging.info('Cache status: %s', cache_info())

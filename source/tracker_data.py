@@ -124,7 +124,7 @@ def cached_queues(issue):
     """ Return one issue queues """
     qu = {issue.queue.key}
     qu.update({q for linked in get_linked_issues(issue)
-              for q in cached_queues(linked)})
+               for q in cached_queues(linked)})
     return list(qu)
 
 
@@ -317,7 +317,7 @@ def issue_burn(issue, mode, cat, splash, default_comp=()):
     return dict(counter)
 
 
-def burn(issues: list, mode, splash):
+def burn(issues: list, mode, splash, dates):
     """Return burn (closed initial estimate) of issues and its descendants, sorted by mode
     {category : {date : closed estimate}}
     Unclosed, canceled tasks are ignored."""
@@ -337,9 +337,12 @@ def burn(issues: list, mode, splash):
         else:
             v = {issue.key: issue_burn(issue, mode, '', splash)
                  for issue in issues if bar() not in ['nothing']}
-    dates = sorted([key for value in v.values() for key in iter(value)])
-    zeroes = {date.date(): 0 for date in rrule(DAILY, dtstart=dates[0], until=dates[-1])} if len(dates) else {}
-    return {row: dict(sorted(_sum_dict([zeroes, v[row]]).items())) for row in iter(v)}
+    # return {row: {date.date(): v[row][date.date()] if date.date() in v[row].keys() else 0 for date in dates}
+    #         for row in iter(v)}
+
+    return {date.date(): {row: v[row][date.date()] if date.date() in v[row].keys() else 0
+                          for row in iter(v)}
+            for date in dates}
 
 
 def cache_info():

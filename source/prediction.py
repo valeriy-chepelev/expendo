@@ -1,3 +1,5 @@
+from pprint import pprint
+
 def linreg(X, Y):
     """
     return a,b in solution to y = ax + b such that root-mean-square distance between trend line
@@ -33,17 +35,15 @@ def trends(d, row, start=None):
     # calculate high regression
     maxval = [(i, val[1]) for i, val in enumerate(zip(midval, original))
               if val[1] > val[0]]  # get (index, value) for values higher middle
-    assert len(maxval) > 1
-    maxc = linreg(*list(zip(*maxval)))
+    maxc = linreg(*list(zip(*maxval))) if len(maxval) > 1 else midc
     # calculate low regression
     minval = [(i, val[1]) for i, val in enumerate(zip(midval, original))
               if val[1] < val[0]]  # get (index, value) for values lower middle
-    assert len(minval) > 1
-    minc = linreg(*list(zip(*minval)))
+    minc = linreg(*list(zip(*minval))) if len(minval) > 1 else midc
     # return with fixed angles
     return {'name': row,
             'start': dates[0],
             'end': dates[-1],
-            'mid': midc,
-            'min': (min(midc[0], minc[0]), minc[1]),
-            'max': (max(midc[0], maxc[0]), maxc[1])}
+            'mid': (min(midc[0], -0.001), midc[1]),
+            'min': (min(midc[0], minc[0], -0.001), minc[1]),
+            'max': (min(-0.001, max(midc[0], maxc[0])), maxc[1])}
