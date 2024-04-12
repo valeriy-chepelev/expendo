@@ -13,7 +13,7 @@ import argparse
 from prettytable import PrettyTable
 from tracker_data import epics, stories, get_start_date, estimate, spent, burn, components, queues
 from tracker_data import cache_info
-from prediction import trends
+from postprocess import trends, diff_data
 import logging
 from entities import projects as get_projects
 
@@ -103,7 +103,8 @@ def define_parser():
                                      epilog='Tracker connection settings and params in "expendo.ini".')
     parser.add_argument('scope',
                         help='project name or comma-separated issues keys (no space allowed)')
-    parser.add_argument('parameter', choices=['spent', 'estimate', 'velocity', 'burn', 'all'],
+    parser.add_argument('parameter',
+                        choices=['spent', 'estimate', 'velocity', 'burn', 'dspent', 'all'],
                         help='measured value')
     parser.add_argument('grouping', choices=['epics', 'stories', 'components', 'queues'],
                         help='value grouping criteria (epics, stories for project scope only)')
@@ -240,15 +241,20 @@ def main():
     issues = get_scope(client, args, cfg['token'], cfg['org'])  # get issues objects
     dates = get_dates(issues, args)  # get date range
     matplotlib.use('TkAgg')
-    if args.parameter in ['spent', 'all']:
+    if args.parameter in ['spent', 'dspent', 'all']:
         spt = spent(issues, dates, args.grouping)
-        print('Spends:')
+        if args.parameter == 'dspent':
+            spt = diff_data(spt)
+            title = 'dSpends'
+        else:
+            title = 'Spends'
+        print(f'{title}:')
         if args.csv:
             tabulate_data(spt)
         else:
             table_data(spt)
         if args.plot:
-            plot_details('Spends', spt)
+            plot_details(title, spt)
     if args.parameter in ['estimate', 'all']:
         est = estimate(issues, dates, args.grouping)
         print('Estimates:')

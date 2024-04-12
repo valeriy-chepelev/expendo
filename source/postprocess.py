@@ -45,3 +45,12 @@ def trends(d, row, start=None):
             'mid': (min(midc[0], -0.001), midc[1]),
             'min': (min(midc[0], minc[0], -0.001), minc[1]),
             'max': (min(-0.001, max(midc[0], maxc[0])), maxc[1])}
+
+
+def diff_data(d):
+    """Calculate data differential day-to-day for all rows"""
+    values = list(d.values())
+    dv = [{key: 0 for key, value in values[0].items()}]
+    for i in range(1, len(values)):
+        dv.append({key: value - values[i-1][key] for key, value in values[i].items()})
+    return dict(zip(d.keys(), dv))
