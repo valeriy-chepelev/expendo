@@ -1,3 +1,6 @@
+from dateutil.relativedelta import relativedelta
+
+
 def linreg(X, Y):
     """
     return a,b in solution to y = ax + b such that root-mean-square distance between trend line
@@ -52,5 +55,25 @@ def diff_data(d):
     values = list(d.values())
     dv = [{key: 0 for key, value in values[0].items()}]
     for i in range(1, len(values)):
-        dv.append({key: value - values[i-1][key] for key, value in values[i].items()})
+        dv.append({key: value - values[i - 1][key] for key, value in values[i].items()})
     return dict(zip(d.keys(), dv))
+
+
+def summ_data(d, base_date):
+    """Calculate summary ranges"""
+    first = next(iter(d))
+    last = next(reversed(d.keys()))
+    x_date = base_date
+    # move to first date
+    while x_date < first:
+        x_date += relativedelta(weeks=+2)
+    while x_date > first:
+        x_date += relativedelta(weeks=-2)
+    ranges = []
+    while x_date <= last:
+        ranges.append(x_date)
+        x_date += relativedelta(weeks=2)
+    return {ranges[i - 1]: {key: sum([d[date][key] for date in d.keys()
+                                      if ranges[i - 1] < date <= ranges[i]])
+                            for key in d[next(iter(d))].keys()}
+            for i in range(1, len(ranges))}

@@ -6,6 +6,9 @@ from collections import Counter
 from dateutil.rrule import rrule, DAILY
 import logging
 from issue_cache import issue_cache
+from dateutil.relativedelta import relativedelta
+
+future_date = dt.datetime.now(dt.timezone.utc) + relativedelta(days=3)
 
 
 def _iso_split(s, split):
@@ -145,7 +148,7 @@ def _spent(issue, date, mode, cat, default_comp=()):
                    if s['kind'] == 'spent' and s['date'].date() <= date.date()), 0) + \
              sum([_spent(linked, date, mode, cat,
                          own_cat if mode == 'components' and len(own_cat) > 0 \
-                                  else default_comp)
+                             else default_comp)
                   for linked in _linked_issues(issue)])
     return sp
 
@@ -170,7 +173,7 @@ def _estimate(issue, date, mode, cat, default_comp=()):
         else:
             est = sum([_estimate(linked, date, mode, cat,
                                  own_cat if mode == 'components' and len(own_cat) > 0 \
-                                          else default_comp)
+                                     else default_comp)
                        for linked in _linked_issues(issue)])
     return est
 
@@ -191,15 +194,13 @@ def spent(issues: list, dates: list, mode):
     with alive_bar(len(issues) * len(cats) * len(dates),
                    title='Spends', theme='classic') as bar:
         if mode in ['queues', 'components']:
-            return {date.date(): {cat:
-                                      sum([_spent(issue, date, mode, cat)
-                                           for issue in issues
-                                           if bar() not in ['nothing']])
+            return {date.date(): {cat: sum([_spent(issue, date, mode, cat)
+                                            for issue in issues
+                                            if bar() not in ['nothing']])
                                   for cat in cats}
                     for date in dates}
         else:
-            return {date.date(): {issue.key:
-                                      _spent(issue, date, mode, '')
+            return {date.date(): {issue.key: _spent(issue, date, mode, '')
                                   for issue in issues
                                   if bar() not in ['nothing']}
                     for date in dates}
@@ -261,15 +262,19 @@ def _sum_dict(d: list) -> dict:
     return dict(result)
 
 
-def _issue_burn_data(issue) -> dict:
+def _issue_original(issue) -> dict:
     """Return start, end and initial estimate value at the issue start moment.
-    If unable to detect start or end - raises StopIteration."""
+    If unable to detect start or end - return today-dates."""
     # start date is date of first InProgress status
-    start_date = next(t['date'] for t in reversed(_issue_times(issue))
-                      if t['kind'] == 'status' and t['value'] in ['inProgress', 'testing'])
+    # if start date unknown - return future for backlogged tasks, or far past for other statuses?
+    start_date = next((t['date'] for t in reversed(_issue_times(issue))
+                       if t['kind'] == 'status' and t['value'] in ['inProgress', 'testing']),
+                      future_date)
     # final date is date of last Fixed resolution
-    final_date = next(t['date'] for t in _issue_times(issue)
-                      if t['kind'] == 'resolution' and t['value'] in ['fixed'])
+    # if final date unknown - return future
+    final_date = next((t['date'] for t in _issue_times(issue)
+                       if t['kind'] == 'resolution' and t['value'] in ['fixed']),
+                      future_date)
     # find last estimation before start
     est = next((s['value'] for s in _issue_times(issue)
                 if s['kind'] == 'estimation' and s['date'].date() <= start_date.date()), 0)
@@ -280,7 +285,9 @@ def _issue_burn_data(issue) -> dict:
                     if s['kind'] == 'estimation'), 0)
     return {'start': start_date.date(),
             'end': final_date.date(),
-            'estimate': est}
+            'original': est,
+            'created': dt.datetime.strptime(issue.createdAt, '%Y-%m-%dT%H:%M:%S.%f%z').date(),
+            'valuable': False}
 
 
 def _burn(issue, mode, cat, splash, default_comp=()):
@@ -298,17 +305,14 @@ def _burn(issue, mode, cat, splash, default_comp=()):
             (mode not in ['components', 'queues']) or \
             (len(own_cat) == 0 and cat in default_comp):
         if len(_linked_issues(issue)) == 0 and _issue_valuable(issue):
-            try:
-                b = _issue_burn_data(issue)
-                logging.info(f'{issue.type.key} {issue.key} burn measured to: %s', b)
-                if splash:
-                    se = b['estimate'] / ((b['end'] - b['start']).days + 1)
-                    counter.update({date.date(): se
-                                    for date in rrule(DAILY, dtstart=b['start'], until=b['end'])})
-                else:
-                    counter.update({b['end']: b['estimate']})
-            except StopIteration:
-                logging.error(f'{issue.type.key} {issue.key} have not start or finish data, ignored.')
+            b = _issue_original(issue)
+            logging.info(f'{issue.type.key} {issue.key} burn measured to: %s', b)
+            if splash:
+                se = b['original'] / ((b['end'] - b['start']).days + 1)
+                counter.update({date.date(): se
+                                for date in rrule(DAILY, dtstart=b['start'], until=b['end'])})
+            else:
+                counter.update({b['end']: b['original']})
         else:
             for linked in _linked_issues(issue):
                 counter.update(_burn(linked, mode, cat, splash,
@@ -339,6 +343,58 @@ def burn(issues: list, mode, splash, dates):
     return {date.date(): {row: v[row][date.date()] if date.date() in v[row].keys() else 0
                           for row in iter(v)}
             for date in dates}
+
+
+def _original(issue, date, mode, cat, default_comp=()):
+    """ Return initial estimate of issue (hours) as summary estimates of all child issues,
+    for the date up to issue resolution set, containing specified component or queue."""
+    if mode == 'components':
+        own_cat = _components(issue)
+    elif mode == 'queues':
+        own_cat = _queues(issue)
+    else:
+        own_cat = list()
+    est = 0
+    if (cat == '' or cat in own_cat) or \
+            (mode not in ['components', 'queues']) or \
+            (len(own_cat) == 0 and cat in default_comp):
+        if len(_linked_issues(issue)) == 0:
+            e = _issue_original(issue)
+            est = e['original'] if e['created'] <= date.date() <= e['end'] else 0
+        else:
+            est = sum([_original(linked, date, mode, cat,
+                                 own_cat if mode == 'components' and len(own_cat) > 0 \
+                                     else default_comp)
+                       for linked in _linked_issues(issue)])
+    return est
+
+
+def original(issues: list, dates: list, mode):
+    """ Return issues initial estimate daily timeline as dictionary of
+    {date: {issue_key: estimate[days]}} for the listed issues.
+    If by_component requested, collect estimates for issues components and return
+    timeline {date: {component: estimate[days]}}.
+    Issue in list should be yandex tracker reference."""
+    logging.info('Initial estimates calculation')
+    if mode == 'queues':
+        cats = queues(issues)
+    elif mode == 'components':
+        cats = components(issues)
+    else:
+        cats = ['']
+    with alive_bar(len(issues) * len(cats) * len(dates),
+                   title='Initial estimates', theme='classic') as bar:
+        if mode in ['queues', 'components']:
+            return {date.date(): {cat: sum([_original(issue, date, mode, cat)
+                                           for issue in issues
+                                           if bar() not in ['nothing']])
+                                  for cat in cats}
+                    for date in dates}
+        else:
+            return {date.date(): {issue.key: _original(issue, date, mode, '')
+                                  for issue in issues
+                                  if bar() not in ['nothing']}
+                    for date in dates}
 
 
 def cache_info():

@@ -13,7 +13,7 @@ import argparse
 from prettytable import PrettyTable
 from tracker_data import epics, stories, get_start_date, estimate, spent, burn, components, queues
 from tracker_data import cache_info
-from postprocess import trends, diff_data
+from postprocess import trends, diff_data, summ_data
 import logging
 from entities import projects as get_projects
 
@@ -99,19 +99,21 @@ def tabulate_data(d: dict):
 def define_parser():
     """ Return CLI arguments parser
     """
-    parser = argparse.ArgumentParser(description='Expendo v.1.1 - Yandex Tracker stat crawler by VCh.',
+    parser = argparse.ArgumentParser(description='Expendo v.1.2 - Yandex Tracker stat crawler by VCh.',
                                      epilog='Tracker connection settings and params in "expendo.ini".')
     parser.add_argument('scope',
                         help='project name or comma-separated issues keys (no space allowed)')
     parser.add_argument('parameter',
-                        choices=['spent', 'estimate', 'velocity', 'burn', 'dspent', 'all'],
+                        choices=['spent', 'dspent', 'estimate', 'velocity', 'burn', 'all'],
                         help='measured value')
     parser.add_argument('grouping', choices=['epics', 'stories', 'components', 'queues'],
                         help='value grouping criteria (epics, stories for project scope only)')
     parser.add_argument('timespan', choices=['today', 'week', 'sprint', 'month', 'quarter', 'all'],
                         help='time range (for spends and estimates only)')
     parser.add_argument('-t', '--trend',
-                        help='make estimate trend projections for TREND issue')
+                        help='make estimate trend projections for TREND')
+    parser.add_argument('-s', '--summ', metavar='BASE_DATE',
+                        help='calculate 14-days summ for "dspent" and "burn"; specify BASE_DATA in "d.m.y" format')
     parser.add_argument('-p', '--plot', default=False, action='store_true',
                         help='plot charts widgets')
     parser.add_argument('-c', '--csv', default=False, action='store_true',
@@ -241,13 +243,28 @@ def main():
     issues = get_scope(client, args, cfg['token'], cfg['org'])  # get issues objects
     dates = get_dates(issues, args)  # get date range
     matplotlib.use('TkAgg')
-    if args.parameter in ['spent', 'dspent', 'all']:
+    if args.parameter in ['spent', 'all']:
         spt = spent(issues, dates, args.grouping)
-        if args.parameter == 'dspent':
-            spt = diff_data(spt)
-            title = 'dSpends'
+        #
+        summ_data(spt, dt.date(2024, 4, 3))
+        #
+        title = 'Spends'
+        print(f'{title}:')
+        if args.csv:
+            tabulate_data(spt)
         else:
-            title = 'Spends'
+            table_data(spt)
+        if args.plot:
+            plot_details(title, spt)
+    if args.parameter in ['dspent', 'all']:
+        spt = spent(issues, dates, args.grouping)
+        spt = diff_data(spt)
+        try:
+            base_date = dt.datetime.strptime(args.summ, '%d.%m.%y').date()
+            spt = summ_data(spt, base_date)
+        except TypeError:
+            pass
+        title = 'dSpends'
         print(f'{title}:')
         if args.csv:
             tabulate_data(spt)
@@ -276,8 +293,34 @@ def main():
         # Plot estimates with trends
         if args.plot:
             plot_details('Estimates', est, tr)
+    # if args.parameter in ['original', 'all']:
+        # est = original(issues, dates, args.grouping)
+        # print('Initial estimates:')
+        # if args.csv:
+        #     tabulate_data(est)
+        # else:
+        #     table_data(est)
+        # # Trends
+        # tr = None
+        # if args.trend is not None:
+        #     try:
+        #         tr = trends(est, args.trend)
+        #         tabulate_trend(tr)
+        #         if args.plot:
+        #             trend_funnel(est, args.trend)
+        #     except Exception as ex:
+        #         print('Execution error:', ex)
+        #         logging.exception('Trends error')
+        # Plot estimates with trends
+        # if args.plot:
+        #     plot_details('Initial estimates', est)
     if args.parameter in ['burn', 'all']:
         brn = burn(issues, args.grouping, False, dates)
+        try:
+            base_date = dt.datetime.strptime(args.summ, '%d.%m.%y').date()
+            brn = summ_data(brn, base_date)
+        except TypeError:
+            pass
         print('Burned estimates:')
         if args.csv:
             tabulate_data(brn)
