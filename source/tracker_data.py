@@ -86,14 +86,12 @@ def stories(client, project):
 def components(issues: list, w_bar=False):
     """ Return list of components assigned to issues and all of its descendants """
     comp = set()
-    if w_bar:
-        with alive_bar(len(issues), title='Components', theme='classic') as bar:
-            for issue in issues:
-                comp.update(set(_components(issue)))
-                bar()
-    else:
+    with alive_bar(len(issues), title='Components', theme='classic', disable=not w_bar) as bar:
         for issue in issues:
             comp.update(set(_components(issue)))
+            comp.update({c for linked in _linked_issues(issue)
+                         for c in components([linked])})
+            bar()
     return sorted(list(comp))
 
 
@@ -101,80 +99,72 @@ def components(issues: list, w_bar=False):
 @issue_cache('cache/comp')
 def _components(issue):
     """ Return one issue components """
-    comp = {comp.name for comp in issue.components}
-    comp.update({c for linked in _linked_issues(issue)
-                 for c in _components(linked)})
-    return list(comp)
+    return [comp.name for comp in issue.components]
 
 
 def queues(issues: list, w_bar=False):
     """ Return list of queues used by issues and all of its descendants """
-    q = set()
-    if w_bar:
-        with alive_bar(len(issues), title='Queues', theme='classic') as bar:
-            for issue in issues:
-                q.update(set(_queues(issue)))
-                bar()
-    else:
+    qu = set()
+    with alive_bar(len(issues), title='Queues', theme='classic', disable=not w_bar) as bar:
         for issue in issues:
-            q.update(set(_queues(issue)))
-    return sorted(list(q))
+            qu.update(set(_queues(issue)))
+            qu.update({q for linked in _linked_issues(issue)
+                       for q in queues(linked)})
+            bar()
+    return sorted(list(qu))
 
 
 @lru_cache(maxsize=None)  # Caching access to YT
 @issue_cache('cache/que')
 def _queues(issue):
     """ Return one issue queues """
-    qu = {issue.queue.key}
-    qu.update({q for linked in _linked_issues(issue)
-               for q in _queues(linked)})
-    return list(qu)
+    return [issue.queue.key]
 
 
 def _spent(issue, date, mode, cat, default_comp=()):
     """ Return summary spent of issue (hours) including spent of all child issues,
     due to the date, containing specified component."""
+    # check mode
     if mode == 'components':
         own_cat = _components(issue)
     elif mode == 'queues':
         own_cat = _queues(issue)
     else:
         own_cat = list()
-    sp = 0
+    # get all linked issues spends using recursion
+    sp = sum([_spent(linked, date, mode, cat,
+                     own_cat if mode == 'components' and len(own_cat) > 0 else default_comp)
+              for linked in _linked_issues(issue)])
+    # add own issue spent if issue match criteria
     if (cat == '' or cat in own_cat) or \
             (mode not in ['components', 'queues']) or \
             (len(own_cat) == 0 and cat in default_comp):
-        sp = next((s['value'] for s in _issue_times(issue)
-                   if s['kind'] == 'spent' and s['date'].date() <= date.date()), 0) + \
-             sum([_spent(linked, date, mode, cat,
-                         own_cat if mode == 'components' and len(own_cat) > 0 \
-                             else default_comp)
-                  for linked in _linked_issues(issue)])
+        sp += next((s['value'] for s in _issue_times(issue)
+                    if s['kind'] == 'spent' and s['date'].date() <= date.date()), 0)
     return sp
 
 
 def _estimate(issue, date, mode, cat, default_comp=()):
     """ Return estimate of issue (hours) as summary estimates of all child issues,
     for the date, containing specified component."""
+    # check mode
     if mode == 'components':
         own_cat = _components(issue)
     elif mode == 'queues':
         own_cat = _queues(issue)
     else:
         own_cat = list()
-    est = 0
+    # get all linked estimates using recursion
+    est = sum([_estimate(linked, date, mode, cat,
+                         own_cat if mode == 'components' and len(own_cat) > 0 else default_comp)
+               for linked in _linked_issues(issue)])
+    # add own issue estimate according match criteria
     if (cat == '' or cat in own_cat) or \
             (mode not in ['components', 'queues']) or \
-            (len(own_cat) == 0 and cat in default_comp):
-        if len(_linked_issues(issue)) == 0:
-            estimates = _issue_times(issue)
-            est = next((s['value'] for s in estimates
-                        if s['kind'] == 'estimation' and s['date'].date() <= date.date()), 0)
-        else:
-            est = sum([_estimate(linked, date, mode, cat,
-                                 own_cat if mode == 'components' and len(own_cat) > 0 \
-                                     else default_comp)
-                       for linked in _linked_issues(issue)])
+            (len(own_cat) == 0 and cat in default_comp) and \
+            (len(_linked_issues(issue)) == 0):
+        est += next((s['value'] for s in _issue_times(issue)
+                     if s['kind'] == 'estimation' and s['date'].date() <= date.date()), 0)
     return est
 
 
@@ -222,15 +212,13 @@ def estimate(issues: list, dates: list, mode):
     with alive_bar(len(issues) * len(cats) * len(dates),
                    title='Estimates', theme='classic') as bar:
         if mode in ['queues', 'components']:
-            return {date.date(): {cat:
-                                      sum([_estimate(issue, date, mode, cat)
-                                           for issue in issues
-                                           if bar() not in ['nothing']])
+            return {date.date(): {cat: sum([_estimate(issue, date, mode, cat)
+                                            for issue in issues
+                                            if bar() not in ['nothing']])
                                   for cat in cats}
                     for date in dates}
         else:
-            return {date.date(): {issue.key:
-                                      _estimate(issue, date, mode, '')
+            return {date.date(): {issue.key: _estimate(issue, date, mode, '')
                                   for issue in issues
                                   if bar() not in ['nothing']}
                     for date in dates}
@@ -294,29 +282,32 @@ def _burn(issue, mode, cat, splash, default_comp=()):
     """Calculate burned estimate for issue and it's descendants.
     Return {burn_date : initial estimate}
     Unclosed, canceled tasks are ignored."""
+    # define mode
     if mode == 'components':
         own_cat = _components(issue)
     elif mode == 'queues':
         own_cat = _queues(issue)
     else:
         own_cat = list()
+    # init daily time counter
     counter = Counter()
+    # add nested burns using recursion
+    for linked in _linked_issues(issue):
+        counter.update(_burn(linked, mode, cat, splash,
+                             own_cat if mode == 'components' and len(own_cat) > 0 else default_comp))
+    # add own issue burn if issue match criteria
     if (cat == '' or cat in own_cat) or \
             (mode not in ['components', 'queues']) or \
-            (len(own_cat) == 0 and cat in default_comp):
-        if len(_linked_issues(issue)) == 0 and _issue_valuable(issue):
-            b = _issue_original(issue)
-            logging.info(f'{issue.type.key} {issue.key} burn measured to: %s', b)
-            if splash:
-                se = b['original'] / ((b['end'] - b['start']).days + 1)
-                counter.update({date.date(): se
-                                for date in rrule(DAILY, dtstart=b['start'], until=b['end'])})
-            else:
-                counter.update({b['end']: b['original']})
+            (len(own_cat) == 0 and cat in default_comp) and \
+            len(_linked_issues(issue)) == 0 and _issue_valuable(issue):
+        b = _issue_original(issue)
+        logging.info(f'{issue.type.key} {issue.key} burn measured to: %s', b)
+        if splash:
+            se = b['original'] / ((b['end'] - b['start']).days + 1)
+            counter.update({date.date(): se
+                            for date in rrule(DAILY, dtstart=b['start'], until=b['end'])})
         else:
-            for linked in _linked_issues(issue):
-                counter.update(_burn(linked, mode, cat, splash,
-                                     own_cat if mode == 'components' and len(own_cat) > 0 else default_comp))
+            counter.update({b['end']: b['original']})
     return dict(counter)
 
 
@@ -348,24 +339,24 @@ def burn(issues: list, mode, splash, dates):
 def _original(issue, date, mode, cat, default_comp=()):
     """ Return initial estimate of issue (hours) as summary estimates of all child issues,
     for the date up to issue resolution set, containing specified component or queue."""
+    # define mode
     if mode == 'components':
         own_cat = _components(issue)
     elif mode == 'queues':
         own_cat = _queues(issue)
     else:
         own_cat = list()
-    est = 0
+    # calculate summary nested original estimate using recursion
+    est = sum([_original(linked, date, mode, cat,
+                         own_cat if mode == 'components' and len(own_cat) > 0 else default_comp)
+               for linked in _linked_issues(issue)])
+    # add own issue original estimate if match criteria
     if (cat == '' or cat in own_cat) or \
             (mode not in ['components', 'queues']) or \
-            (len(own_cat) == 0 and cat in default_comp):
-        if len(_linked_issues(issue)) == 0:
-            e = _issue_original(issue)
-            est = e['original'] if e['created'] <= date.date() <= e['end'] else 0
-        else:
-            est = sum([_original(linked, date, mode, cat,
-                                 own_cat if mode == 'components' and len(own_cat) > 0 \
-                                     else default_comp)
-                       for linked in _linked_issues(issue)])
+            (len(own_cat) == 0 and cat in default_comp) and \
+            len(_linked_issues(issue)) == 0:
+        e = _issue_original(issue)
+        est += e['original'] if e['created'] <= date.date() <= e['end'] else 0
     return est
 
 
@@ -386,8 +377,8 @@ def original(issues: list, dates: list, mode):
                    title='Initial estimates', theme='classic') as bar:
         if mode in ['queues', 'components']:
             return {date.date(): {cat: sum([_original(issue, date, mode, cat)
-                                           for issue in issues
-                                           if bar() not in ['nothing']])
+                                            for issue in issues
+                                            if bar() not in ['nothing']])
                                   for cat in cats}
                     for date in dates}
         else:
