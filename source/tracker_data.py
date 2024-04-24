@@ -7,8 +7,9 @@ from dateutil.rrule import rrule, DAILY
 import logging
 from issue_cache import issue_cache
 from dateutil.relativedelta import relativedelta
+from types import SimpleNamespace
 
-future_date = dt.datetime.now(dt.timezone.utc) + relativedelta(days=3)
+_future_date = dt.datetime.now(dt.timezone.utc) + relativedelta(days=3)
 
 
 def _iso_split(s, split):
@@ -53,8 +54,8 @@ def _issue_times(issue):
     """ Return reverse-sorted by time list of issue spends, estimates, status and resolution changes"""
     sp = [{'date': dt.datetime.strptime(log.updatedAt, '%Y-%m-%dT%H:%M:%S.%f%z'),
            'kind': field['field'].id,
-           'value': _iso_hrs(field['to']) if field['field'].id in ['spent', 'estimation'] \
-               else field['to'].key if field['to'] is not None else ''}
+           'value': _iso_hrs(field['to']) if field['field'].id in ['spent', 'estimation']
+           else field['to'].key if field['to'] is not None else ''}
           for log in issue.changelog for field in log.fields
           if field['field'].id in ['spent', 'estimation', 'resolution', 'status']]
     sp.sort(key=lambda d: d['date'], reverse=True)
@@ -235,13 +236,6 @@ def get_start_date(issues: list):
     return d
 
 
-def _issue_valuable(issue) -> bool:
-    """Return flag of issue is useful and finished """
-    return issue.type.key in ['task', 'bug'] and \
-        issue.status.key in ['resolved', 'closed'] and \
-        issue.resolution.key in ['fixed']
-
-
 def _sum_dict(d: list) -> dict:
     """Summarise dictionaries using Counters"""
     result = Counter()
@@ -250,32 +244,34 @@ def _sum_dict(d: list) -> dict:
     return dict(result)
 
 
-def _issue_original(issue) -> dict:
+@lru_cache(maxsize=None)  # Caching calculations and YT access
+def _issue_original(issue):
     """Return start, end and initial estimate value at the issue start moment.
-    If unable to detect start or end - return today-dates."""
+    If unable to detect start or end - return future dates."""
     # start date is date of first InProgress status
     # if start date unknown - return future for backlogged tasks, or far past for other statuses?
     start_date = next((t['date'] for t in reversed(_issue_times(issue))
                        if t['kind'] == 'status' and t['value'] in ['inProgress', 'testing']),
-                      future_date)
+                      _future_date)
     # final date is date of last Fixed resolution
     # if final date unknown - return future
     final_date = next((t['date'] for t in _issue_times(issue)
                        if t['kind'] == 'resolution' and t['value'] in ['fixed']),
-                      future_date)
+                      _future_date)
     # find last estimation before start
-    est = next((s['value'] for s in _issue_times(issue)
-                if s['kind'] == 'estimation' and s['date'].date() <= start_date.date()), 0)
     # if task not estimated before start - find any first estimation
-    if est == 0:
-        logging.info(f'{issue.type.key} {issue.key} was not estimated before start.')
-        est = next((s['value'] for s in reversed(_issue_times(issue))
-                    if s['kind'] == 'estimation'), 0)
-    return {'start': start_date.date(),
-            'end': final_date.date(),
-            'original': est,
-            'created': dt.datetime.strptime(issue.createdAt, '%Y-%m-%dT%H:%M:%S.%f%z').date(),
-            'valuable': False}
+    est = next((s['value'] for s in _issue_times(issue)
+                if s['kind'] == 'estimation' and s['date'].date() <= start_date.date()),
+               next((s['value'] for s in reversed(_issue_times(issue))
+                     if s['kind'] == 'estimation'), 0))
+    r = {'start': start_date.date(),
+         'end': final_date.date(),
+         'original': est,
+         'created': dt.datetime.strptime(issue.createdAt, '%Y-%m-%dT%H:%M:%S.%f%z').date(),
+         'valuable': issue.type.key in ['task', 'bug'],
+         'finished': issue.status.key in ['resolved', 'closed'] and
+                     issue.resolution.key in ['fixed']}
+    return SimpleNamespace(**r)
 
 
 def _burn(issue, mode, cat, splash, default_comp=()):
@@ -296,18 +292,18 @@ def _burn(issue, mode, cat, splash, default_comp=()):
         counter.update(_burn(linked, mode, cat, splash,
                              own_cat if mode == 'components' and len(own_cat) > 0 else default_comp))
     # add own issue burn if issue match criteria
-    if (cat == '' or cat in own_cat) or \
-            (mode not in ['components', 'queues']) or \
-            (len(own_cat) == 0 and cat in default_comp) and \
-            len(_linked_issues(issue)) == 0 and _issue_valuable(issue):
-        b = _issue_original(issue)
+    if ((cat == '' or cat in own_cat) or
+            (mode not in ['components', 'queues']) or
+            (len(own_cat) == 0 and cat in default_comp)) and \
+            len(_linked_issues(issue)) == 0 and \
+            (b := _issue_original(issue)).valuable & b.finished:
         logging.info(f'{issue.type.key} {issue.key} burn measured to: %s', b)
         if splash:
-            se = b['original'] / ((b['end'] - b['start']).days + 1)
+            se = b.original / ((b.end - b.start).days + 1)
             counter.update({date.date(): se
-                            for date in rrule(DAILY, dtstart=b['start'], until=b['end'])})
+                            for date in rrule(DAILY, dtstart=b.start, until=b.end)})
         else:
-            counter.update({b['end']: b['original']})
+            counter.update({b.end: b.original})
     return dict(counter)
 
 
@@ -351,12 +347,12 @@ def _original(issue, date, mode, cat, default_comp=()):
                          own_cat if mode == 'components' and len(own_cat) > 0 else default_comp)
                for linked in _linked_issues(issue)])
     # add own issue original estimate if match criteria
-    if (cat == '' or cat in own_cat) or \
-            (mode not in ['components', 'queues']) or \
-            (len(own_cat) == 0 and cat in default_comp) and \
-            len(_linked_issues(issue)) == 0:
-        e = _issue_original(issue)
-        est += e['original'] if e['created'] <= date.date() <= e['end'] else 0
+    if ((cat == '' or cat in own_cat) or
+       (mode not in ['components', 'queues']) or
+       (len(own_cat) == 0 and cat in default_comp)) and \
+       len(_linked_issues(issue)) == 0 and \
+       (e := _issue_original(issue)).valuable & (e.created <= date.date() <= e.end):
+        est += e.original if not e.finished else 0
     return est
 
 
@@ -392,4 +388,5 @@ def cache_info():
     return {'times': _issue_times.cache_info(),
             'links': _linked_issues.cache_info(),
             'components': _components.cache_info(),
-            'queues': _queues.cache_info()}
+            'queues': _queues.cache_info(),
+            'originals': _issue_original.cache_info()}

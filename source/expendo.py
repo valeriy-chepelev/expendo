@@ -11,9 +11,9 @@ from matplotlib.dates import DateFormatter
 import configparser
 import argparse
 from prettytable import PrettyTable
-from tracker_data import epics, stories, get_start_date, estimate, spent, burn, components, queues
+from tracker_data import epics, stories, get_start_date, estimate, spent, burn, components, queues, original
 from tracker_data import cache_info
-from postprocess import trends, diff_data, summ_data
+from postprocess import trends, diff_data, summ_data, slice_data
 import logging
 from entities import projects as get_projects
 
@@ -31,10 +31,12 @@ def read_config(filename):
 def plot_details(title: str, d: dict, trend=None, units='[hours]'):
     fig, ax = plt.subplots()
     trend_color = 'k'
+    dates = list(d.keys())
+    marker = '.' if len(dates) > 1 and (dates[1] - dates[0]).days > 1 else None
     for row in d[next(iter(d))].keys():
-        p = ax.plot(list(d.keys()),
+        p = ax.plot(dates,
                     [d[date][row] for date in d.keys()],
-                    label=row)
+                    label=row, marker=marker)
         if trend is not None and row == trend['name']:
             trend_color = p[0].get_color()
     if trend is not None:
@@ -104,7 +106,7 @@ def define_parser():
     parser.add_argument('scope',
                         help='project name or comma-separated issues keys (no space allowed)')
     parser.add_argument('parameter',
-                        choices=['spent', 'dspent', 'estimate', 'velocity', 'burn', 'all'],
+                        choices=['spent', 'dspent', 'estimate', 'velocity', 'burn', 'original', 'all'],
                         help='measured value')
     parser.add_argument('grouping', choices=['epics', 'stories', 'components', 'queues'],
                         help='value grouping criteria (epics, stories for project scope only)')
@@ -245,11 +247,13 @@ def main():
     matplotlib.use('TkAgg')
     if args.parameter in ['spent', 'all']:
         spt = spent(issues, dates, args.grouping)
-        #
-        summ_data(spt, dt.date(2024, 4, 3))
-        #
+        try:
+            base_date = dt.datetime.strptime(args.summ, '%d.%m.%y').date()
+            spt = slice_data(spt, base_date)
+        except TypeError:
+            pass
         title = 'Spends'
-        print(f'{title}:')
+        print(f'{title} [hours]:')
         if args.csv:
             tabulate_data(spt)
         else:
@@ -259,29 +263,36 @@ def main():
     if args.parameter in ['dspent', 'all']:
         spt = spent(issues, dates, args.grouping)
         spt = diff_data(spt)
+        units = '[hrs/day]'
         try:
             base_date = dt.datetime.strptime(args.summ, '%d.%m.%y').date()
             spt = summ_data(spt, base_date)
+            units = '[hrs/sprint]'
         except TypeError:
             pass
         title = 'dSpends'
-        print(f'{title}:')
+        print(f'{title} {units}:')
         if args.csv:
             tabulate_data(spt)
         else:
             table_data(spt)
         if args.plot:
-            plot_details(title, spt)
+            plot_details(title, spt, units=units)
     if args.parameter in ['estimate', 'all']:
         est = estimate(issues, dates, args.grouping)
-        print('Estimates:')
+        try:
+            base_date = dt.datetime.strptime(args.summ, '%d.%m.%y').date()
+            est = slice_data(est, base_date)
+        except TypeError:
+            pass
+        print('Estimates [hours]:')
         if args.csv:
             tabulate_data(est)
         else:
             table_data(est)
         # Trends
         tr = None
-        if args.trend is not None:
+        if args.trend is not None and args.summ is None:
             try:
                 tr = trends(est, args.trend)
                 tabulate_trend(tr)
@@ -293,27 +304,20 @@ def main():
         # Plot estimates with trends
         if args.plot:
             plot_details('Estimates', est, tr)
-    # if args.parameter in ['original', 'all']:
-        # est = original(issues, dates, args.grouping)
-        # print('Initial estimates:')
-        # if args.csv:
-        #     tabulate_data(est)
-        # else:
-        #     table_data(est)
-        # # Trends
-        # tr = None
-        # if args.trend is not None:
-        #     try:
-        #         tr = trends(est, args.trend)
-        #         tabulate_trend(tr)
-        #         if args.plot:
-        #             trend_funnel(est, args.trend)
-        #     except Exception as ex:
-        #         print('Execution error:', ex)
-        #         logging.exception('Trends error')
-        # Plot estimates with trends
-        # if args.plot:
-        #     plot_details('Initial estimates', est)
+    if args.parameter in ['original', 'all']:
+        est = original(issues, dates, args.grouping)
+        try:
+            base_date = dt.datetime.strptime(args.summ, '%d.%m.%y').date()
+            est = slice_data(est, base_date)
+        except TypeError:
+            pass
+        print('Initial estimates [hours]:')
+        if args.csv:
+            tabulate_data(est)
+        else:
+            table_data(est)
+        if args.plot:
+            plot_details('Initial estimates', est)
     if args.parameter in ['burn', 'all']:
         brn = burn(issues, args.grouping, False, dates)
         try:
@@ -321,7 +325,7 @@ def main():
             brn = summ_data(brn, base_date)
         except TypeError:
             pass
-        print('Burned estimates:')
+        print('Burned estimates [hours]:')
         if args.csv:
             tabulate_data(brn)
         else:
@@ -330,13 +334,20 @@ def main():
             plot_details('Burned estimates', brn)
     if args.parameter in ['velocity', 'all']:
         vel = burn(issues, args.grouping, True, dates)
-        print('Velocity of estimates burning:')
+        units = '[hrs/day]'
+        try:
+            base_date = dt.datetime.strptime(args.summ, '%d.%m.%y').date()
+            vel = summ_data(vel, base_date)
+            units = '[hrs/sprint]'
+        except TypeError:
+            pass
+        print(f'Velocity of estimates burning {units}:')
         if args.csv:
             tabulate_data(vel)
         else:
             table_data(vel)
         if args.plot:
-            plot_details('Burning velocity', vel, units='[hsr/day]')
+            plot_details('Burning velocity', vel, units=units)
 
     # plt.ion()  # Turn on interactive plotting - not working, requires events loop for open plots
     logging.info('Cache status: %s', cache_info())

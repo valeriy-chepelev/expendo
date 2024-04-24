@@ -77,3 +77,23 @@ def summ_data(d, base_date):
                                       if ranges[i - 1] < date <= ranges[i]])
                             for key in d[next(iter(d))].keys()}
             for i in range(1, len(ranges))}
+
+
+def slice_data(d, base_date):
+    """Slice data to single dates based on base_date"""
+    first = next(iter(d))
+    last = next(reversed(d.keys()))
+    x_date = base_date
+    # move to first date
+    while x_date > first:
+        x_date += relativedelta(weeks=-2)
+    # first date should be within data range
+    while x_date < first:
+        x_date += relativedelta(weeks=+2)
+    ranges = []
+    while x_date <= last:
+        ranges.append(x_date)
+        x_date += relativedelta(weeks=2)
+    return {date: {key: d[date][key]
+                   for key in d[next(iter(d))].keys()}
+            for date in ranges}
