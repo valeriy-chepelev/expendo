@@ -271,6 +271,7 @@ def _issue_original(issue):
          'valuable': issue.type.key in ['task', 'bug'],
          'finished': issue.status.key in ['resolved', 'closed'] and
                      issue.resolution.key in ['fixed']}
+    logging.info(f'{issue.type.key} {issue.key} burn measured to: %s', r)
     return SimpleNamespace(**r)
 
 
@@ -297,7 +298,6 @@ def _burn(issue, mode, cat, splash, default_comp=()):
             (len(own_cat) == 0 and cat in default_comp)) and \
             len(_linked_issues(issue)) == 0 and \
             (b := _issue_original(issue)).valuable & b.finished:
-        logging.info(f'{issue.type.key} {issue.key} burn measured to: %s', b)
         if splash:
             se = b.original / ((b.end - b.start).days + 1)
             counter.update({date.date(): se
@@ -352,7 +352,7 @@ def _original(issue, date, mode, cat, default_comp=()):
        (len(own_cat) == 0 and cat in default_comp)) and \
        len(_linked_issues(issue)) == 0 and \
        (e := _issue_original(issue)).valuable & (e.created <= date.date() <= e.end):
-        est += e.original if not e.finished else 0
+        est += e.original
     return est
 
 

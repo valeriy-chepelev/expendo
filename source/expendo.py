@@ -320,18 +320,20 @@ def main():
             plot_details('Initial estimates', est)
     if args.parameter in ['burn', 'all']:
         brn = burn(issues, args.grouping, False, dates)
+        units = '[hours]'
         try:
             base_date = dt.datetime.strptime(args.summ, '%d.%m.%y').date()
             brn = summ_data(brn, base_date)
+            units = '[hrs/sprint]'
         except TypeError:
             pass
-        print('Burned estimates [hours]:')
+        print(f'Burned estimates {units}:')
         if args.csv:
             tabulate_data(brn)
         else:
             table_data(brn)
         if args.plot:
-            plot_details('Burned estimates', brn)
+            plot_details('Burned estimates', brn, units=units)
     if args.parameter in ['velocity', 'all']:
         vel = burn(issues, args.grouping, True, dates)
         units = '[hrs/day]'
