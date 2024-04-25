@@ -110,7 +110,7 @@ def queues(issues: list, w_bar=False):
         for issue in issues:
             qu.update(set(_queues(issue)))
             qu.update({q for linked in _linked_issues(issue)
-                       for q in queues(linked)})
+                       for q in queues([linked])})
             bar()
     return sorted(list(qu))
 
@@ -137,8 +137,7 @@ def _spent(issue, date, mode, cat, default_comp=()):
                      own_cat if mode == 'components' and len(own_cat) > 0 else default_comp)
               for linked in _linked_issues(issue)])
     # add own issue spent if issue match criteria
-    if (cat == '' or cat in own_cat) or \
-            (mode not in ['components', 'queues']) or \
+    if cat in own_cat + [''] or mode not in ['components', 'queues'] or \
             (len(own_cat) == 0 and cat in default_comp):
         sp += next((s['value'] for s in _issue_times(issue)
                     if s['kind'] == 'spent' and s['date'].date() <= date.date()), 0)
@@ -160,10 +159,8 @@ def _estimate(issue, date, mode, cat, default_comp=()):
                          own_cat if mode == 'components' and len(own_cat) > 0 else default_comp)
                for linked in _linked_issues(issue)])
     # add own issue estimate according match criteria
-    if (cat == '' or cat in own_cat) or \
-            (mode not in ['components', 'queues']) or \
-            (len(own_cat) == 0 and cat in default_comp) and \
-            (len(_linked_issues(issue)) == 0):
+    if (cat in own_cat + [''] or mode not in ['components', 'queues'] or
+            (len(own_cat) == 0 and cat in default_comp)) and len(_linked_issues(issue)) == 0:
         est += next((s['value'] for s in _issue_times(issue)
                      if s['kind'] == 'estimation' and s['date'].date() <= date.date()), 0)
     return est
@@ -293,8 +290,7 @@ def _burn(issue, mode, cat, splash, default_comp=()):
         counter.update(_burn(linked, mode, cat, splash,
                              own_cat if mode == 'components' and len(own_cat) > 0 else default_comp))
     # add own issue burn if issue match criteria
-    if ((cat == '' or cat in own_cat) or
-            (mode not in ['components', 'queues']) or
+    if (cat in own_cat + [''] or mode not in ['components', 'queues'] or
             (len(own_cat) == 0 and cat in default_comp)) and \
             len(_linked_issues(issue)) == 0 and \
             (b := _issue_original(issue)).valuable & b.finished:
@@ -347,11 +343,10 @@ def _original(issue, date, mode, cat, default_comp=()):
                          own_cat if mode == 'components' and len(own_cat) > 0 else default_comp)
                for linked in _linked_issues(issue)])
     # add own issue original estimate if match criteria
-    if ((cat == '' or cat in own_cat) or
-       (mode not in ['components', 'queues']) or
-       (len(own_cat) == 0 and cat in default_comp)) and \
-       len(_linked_issues(issue)) == 0 and \
-       (e := _issue_original(issue)).valuable & (e.created <= date.date() <= e.end):
+    if (cat in own_cat + [''] or mode not in ['components', 'queues'] or
+            (len(own_cat) == 0 and cat in default_comp)) and \
+            len(_linked_issues(issue)) == 0 and \
+            (e := _issue_original(issue)).valuable & (e.created <= date.date() <= e.end):
         est += e.original
     return est
 

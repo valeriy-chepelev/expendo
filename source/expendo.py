@@ -101,7 +101,7 @@ def tabulate_data(d: dict):
 def define_parser():
     """ Return CLI arguments parser
     """
-    parser = argparse.ArgumentParser(description='Expendo v.1.2 - Yandex Tracker stat crawler by VCh.',
+    parser = argparse.ArgumentParser(description='Expendo v.1.3 - Yandex Tracker stat crawler by VCh.',
                                      epilog='Tracker connection settings and params in "expendo.ini".')
     parser.add_argument('scope',
                         help='project name or comma-separated issues keys (no space allowed)')
