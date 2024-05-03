@@ -115,7 +115,7 @@ def define_parser():
     parser.add_argument('-t', '--trend',
                         help='make estimate trend projections for TREND')
     parser.add_argument('-s', '--summ', metavar='BASE_DATE',
-                        help='calculate 14-days summ for "dspent" and "burn"; specify BASE_DATA in "d.m.y" format')
+                        help='calculate 14-days period; specify BASE_DATA in "d.m.y" format')
     parser.add_argument('-p', '--plot', default=False, action='store_true',
                         help='plot charts widgets')
     parser.add_argument('-c', '--csv', default=False, action='store_true',
