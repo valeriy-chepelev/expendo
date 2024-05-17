@@ -169,10 +169,8 @@ def get_dates(issues, args, sprint_days=14) -> list:
         start_date = today + relativedelta(months=-3)
     elif args.timespan == 'sprint':
         start_date = today + relativedelta(days=-sprint_days)
-    elif args.parameter in ['spent', 'estimate', 'all']:
-        start_date = get_start_date(issues)
     else:
-        start_date = today + relativedelta(weeks=-1)
+        start_date = get_start_date(issues)
     return list(rrule(DAILY, dtstart=start_date, until=today))
 
 
