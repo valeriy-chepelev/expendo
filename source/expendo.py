@@ -236,7 +236,7 @@ def main():
     logging.basicConfig(filename='expendo.log',
                         filemode='a',
                         format='%(asctime)s %(name)s %(levelname)s %(message)s',
-                        datefmt='%H:%M:%S',
+                        datefmt='%d/%m/%y %H:%M:%S',
                         level=logging.INFO if args.debug else logging.ERROR)
     logging.info('Started with arguments: %s', vars(args))
     cfg = read_config('expendo.ini')

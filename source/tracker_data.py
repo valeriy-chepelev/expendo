@@ -110,7 +110,7 @@ def tags(issues: list, w_bar=False):
         for issue in issues:
             result.update(set(_tags(issue)))
             result.update({t for linked in _linked_issues(issue)
-                           for t in components([linked])})
+                           for t in tags([linked])})
             bar()
     return sorted(list(result))
 
@@ -141,22 +141,36 @@ def _queues(issue):
     return [issue.queue.key]
 
 
+def _get_category(arg, mode):
+    if type(arg) is list:
+        if mode == 'components':
+            return components(arg)
+        if mode == 'queues':
+            return queues(arg)
+        if mode == 'tags':
+            return tags(arg)
+        return ['']
+    else:
+        if mode == 'components':
+            return _components(arg)
+        if mode == 'queues':
+            return _queues(arg)
+        if mode == 'tags':
+            return _tags(arg)
+        return list()
+
+
 def _spent(issue, date, mode, cat, default_comp=()):
     """ Return summary spent of issue (hours) including spent of all child issues,
     due to the date, containing specified component."""
     # check mode
-    if mode == 'components':
-        own_cat = _components(issue)
-    elif mode == 'queues':
-        own_cat = _queues(issue)
-    else:
-        own_cat = list()
+    own_cat = _get_category(issue, mode)
     # get all linked issues spends using recursion
     sp = sum([_spent(linked, date, mode, cat,
                      own_cat if mode == 'components' and len(own_cat) > 0 else default_comp)
               for linked in _linked_issues(issue)])
     # add own issue spent if issue match criteria
-    if cat in own_cat + [''] or mode not in ['components', 'queues'] or \
+    if cat in own_cat + [''] or mode not in ['components', 'queues', 'tags'] or \
             (len(own_cat) == 0 and cat in default_comp):
         sp += next((s['value'] for s in _issue_times(issue)
                     if s['kind'] == 'spent' and s['date'].date() <= date.date()), 0)
@@ -167,18 +181,13 @@ def _estimate(issue, date, mode, cat, default_comp=()):
     """ Return estimate of issue (hours) as summary estimates of all child issues,
     for the date, containing specified component."""
     # check mode
-    if mode == 'components':
-        own_cat = _components(issue)
-    elif mode == 'queues':
-        own_cat = _queues(issue)
-    else:
-        own_cat = list()
+    own_cat = _get_category(issue, mode)
     # get all linked estimates using recursion
     est = sum([_estimate(linked, date, mode, cat,
                          own_cat if mode == 'components' and len(own_cat) > 0 else default_comp)
                for linked in _linked_issues(issue)])
     # add own issue estimate according match criteria
-    if (cat in own_cat + [''] or mode not in ['components', 'queues'] or
+    if (cat in own_cat + [''] or mode not in ['components', 'queues', 'tags'] or
         (len(own_cat) == 0 and cat in default_comp)) and len(_linked_issues(issue)) == 0:
         est += next((s['value'] for s in _issue_times(issue)
                      if s['kind'] == 'estimation' and s['date'].date() <= date.date()), 0)
@@ -192,15 +201,10 @@ def spent(issues: list, dates: list, mode):
     timeline {date: {component: spent[days]}}.
     Issue in list should be yandex tracker reference."""
     logging.info('Spends calculation')
-    if mode == 'queues':
-        cats = queues(issues)
-    elif mode == 'components':
-        cats = components(issues)
-    else:
-        cats = ['']
+    cats = _get_category(issues, mode)
     with alive_bar(len(issues) * len(cats) * len(dates),
                    title='Spends', theme='classic') as bar:
-        if mode in ['queues', 'components']:
+        if mode in ['queues', 'components', 'tags']:
             return {date.date(): {cat: sum([_spent(issue, date, mode, cat)
                                             for issue in issues
                                             if bar() not in ['nothing']])
@@ -220,15 +224,10 @@ def estimate(issues: list, dates: list, mode):
     timeline {date: {component: estimate[days]}}.
     Issue in list should be yandex tracker reference."""
     logging.info('Estimates calculation')
-    if mode == 'queues':
-        cats = queues(issues)
-    elif mode == 'components':
-        cats = components(issues)
-    else:
-        cats = ['']
+    cats = _get_category(issues, mode)
     with alive_bar(len(issues) * len(cats) * len(dates),
                    title='Estimates', theme='classic') as bar:
-        if mode in ['queues', 'components']:
+        if mode in ['queues', 'components', 'tags']:
             return {date.date(): {cat: sum([_estimate(issue, date, mode, cat)
                                             for issue in issues
                                             if bar() not in ['nothing']])
@@ -296,12 +295,7 @@ def _burn(issue, mode, cat, splash, default_comp=()):
     Return {burn_date : initial estimate}
     Unclosed, canceled tasks are ignored."""
     # define mode
-    if mode == 'components':
-        own_cat = _components(issue)
-    elif mode == 'queues':
-        own_cat = _queues(issue)
-    else:
-        own_cat = list()
+    own_cat = _get_category(issue, mode)
     # init daily time counter
     counter = Counter()
     # add nested burns using recursion
@@ -309,7 +303,7 @@ def _burn(issue, mode, cat, splash, default_comp=()):
         counter.update(_burn(linked, mode, cat, splash,
                              own_cat if mode == 'components' and len(own_cat) > 0 else default_comp))
     # add own issue burn if issue match criteria
-    if (cat in own_cat + [''] or mode not in ['components', 'queues'] or
+    if (cat in own_cat + [''] or mode not in ['components', 'queues', 'tags'] or
         (len(own_cat) == 0 and cat in default_comp)) and \
             len(_linked_issues(issue)) == 0 and \
             (b := _issue_original(issue)).valuable & b.finished:
@@ -327,15 +321,10 @@ def burn(issues: list, mode, splash, dates):
     {category : {date : closed estimate}}
     Unclosed, canceled tasks are ignored."""
     logging.info('Burn calculation, splash mode: %s', splash)
-    if mode == 'queues':
-        cats = queues(issues)
-    elif mode == 'components':
-        cats = components(issues)
-    else:
-        cats = ['']
+    cats = _get_category(issues, mode)
     with alive_bar(len(issues) * len(cats),
                    title='Burn', theme='classic') as bar:
-        if mode in ['queues', 'components']:
+        if mode in ['queues', 'components', 'tags']:
             v = {cat: _sum_dict([_burn(issue, mode, cat, splash)
                                  for issue in issues if bar() not in ['nothing']])
                  for cat in cats}
@@ -351,18 +340,13 @@ def _original(issue, date, mode, cat, default_comp=()):
     """ Return initial estimate of issue (hours) as summary estimates of all child issues,
     for the date up to issue resolution set, containing specified component or queue."""
     # define mode
-    if mode == 'components':
-        own_cat = _components(issue)
-    elif mode == 'queues':
-        own_cat = _queues(issue)
-    else:
-        own_cat = list()
+    own_cat = _get_category(issue, mode)
     # calculate summary nested original estimate using recursion
     est = sum([_original(linked, date, mode, cat,
                          own_cat if mode == 'components' and len(own_cat) > 0 else default_comp)
                for linked in _linked_issues(issue)])
     # add own issue original estimate if match criteria
-    if (cat in own_cat + [''] or mode not in ['components', 'queues'] or
+    if (cat in own_cat + [''] or mode not in ['components', 'queues', 'tags'] or
         (len(own_cat) == 0 and cat in default_comp)) and \
             len(_linked_issues(issue)) == 0 and \
             (e := _issue_original(issue)).valuable & (e.created <= date.date() <= e.end):
@@ -376,16 +360,10 @@ def original(issues: list, dates: list, mode):
     If by_component requested, collect estimates for issues components and return
     timeline {date: {component: estimate[days]}}.
     Issue in list should be yandex tracker reference."""
-    logging.info('Initial estimates calculation')
-    if mode == 'queues':
-        cats = queues(issues)
-    elif mode == 'components':
-        cats = components(issues)
-    else:
-        cats = ['']
+    cats = _get_category(issues, mode)
     with alive_bar(len(issues) * len(cats) * len(dates),
                    title='Initial estimates', theme='classic') as bar:
-        if mode in ['queues', 'components']:
+        if mode in ['queues', 'components', 'tags']:
             return {date.date(): {cat: sum([_original(issue, date, mode, cat)
                                             for issue in issues
                                             if bar() not in ['nothing']])
@@ -403,4 +381,5 @@ def cache_info():
             'links': _linked_issues.cache_info(),
             'components': _components.cache_info(),
             'queues': _queues.cache_info(),
+            'tags': _tags.cache_info(),
             'originals': _issue_original.cache_info()}
