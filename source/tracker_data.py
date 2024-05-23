@@ -103,6 +103,25 @@ def _components(issue):
     return [comp.name for comp in issue.components]
 
 
+def tags(issues: list, w_bar=False):
+    """ Return list of tags assigned to issues and all of its descendants """
+    result = set()
+    with alive_bar(len(issues), title='Tags', theme='classic', disable=not w_bar) as bar:
+        for issue in issues:
+            result.update(set(_tags(issue)))
+            result.update({t for linked in _linked_issues(issue)
+                           for t in components([linked])})
+            bar()
+    return sorted(list(result))
+
+
+@lru_cache(maxsize=None)  # Caching access to YT
+@issue_cache('cache/tags')
+def _tags(issue):
+    """ Return one issue tags """
+    return list(issue.tags)
+
+
 def queues(issues: list, w_bar=False):
     """ Return list of queues used by issues and all of its descendants """
     qu = set()
@@ -160,7 +179,7 @@ def _estimate(issue, date, mode, cat, default_comp=()):
                for linked in _linked_issues(issue)])
     # add own issue estimate according match criteria
     if (cat in own_cat + [''] or mode not in ['components', 'queues'] or
-            (len(own_cat) == 0 and cat in default_comp)) and len(_linked_issues(issue)) == 0:
+        (len(own_cat) == 0 and cat in default_comp)) and len(_linked_issues(issue)) == 0:
         est += next((s['value'] for s in _issue_times(issue)
                      if s['kind'] == 'estimation' and s['date'].date() <= date.date()), 0)
     return est
@@ -291,7 +310,7 @@ def _burn(issue, mode, cat, splash, default_comp=()):
                              own_cat if mode == 'components' and len(own_cat) > 0 else default_comp))
     # add own issue burn if issue match criteria
     if (cat in own_cat + [''] or mode not in ['components', 'queues'] or
-            (len(own_cat) == 0 and cat in default_comp)) and \
+        (len(own_cat) == 0 and cat in default_comp)) and \
             len(_linked_issues(issue)) == 0 and \
             (b := _issue_original(issue)).valuable & b.finished:
         if splash:
@@ -344,7 +363,7 @@ def _original(issue, date, mode, cat, default_comp=()):
                for linked in _linked_issues(issue)])
     # add own issue original estimate if match criteria
     if (cat in own_cat + [''] or mode not in ['components', 'queues'] or
-            (len(own_cat) == 0 and cat in default_comp)) and \
+        (len(own_cat) == 0 and cat in default_comp)) and \
             len(_linked_issues(issue)) == 0 and \
             (e := _issue_original(issue)).valuable & (e.created <= date.date() <= e.end):
         est += e.original

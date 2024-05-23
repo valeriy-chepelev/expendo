@@ -12,7 +12,7 @@ import configparser
 import argparse
 from prettytable import PrettyTable
 from tracker_data import epics, stories, get_start_date, estimate, spent, burn, components, queues, original
-from tracker_data import cache_info
+from tracker_data import cache_info, tags
 from postprocess import trends, diff_data, summ_data, slice_data
 import logging
 from entities import projects as get_projects
@@ -101,14 +101,14 @@ def tabulate_data(d: dict):
 def define_parser():
     """ Return CLI arguments parser
     """
-    parser = argparse.ArgumentParser(description='Expendo v.1.3 - Yandex Tracker stat crawler by VCh.',
+    parser = argparse.ArgumentParser(description='Expendo v.1.4 - Yandex Tracker stat crawler by VCh.',
                                      epilog='Tracker connection settings and params in "expendo.ini".')
     parser.add_argument('scope',
                         help='project name or comma-separated issues keys (no space allowed)')
     parser.add_argument('parameter',
                         choices=['spent', 'dspent', 'estimate', 'velocity', 'burn', 'original', 'all'],
                         help='measured value')
-    parser.add_argument('grouping', choices=['epics', 'stories', 'components', 'queues'],
+    parser.add_argument('grouping', choices=['epics', 'stories', 'components', 'queues', 'tags'],
                         help='value grouping criteria (epics, stories for project scope only)')
     parser.add_argument('timespan', choices=['today', 'week', 'sprint', 'month', 'quarter', 'all'],
                         help='time range (for spends and estimates only)')
@@ -150,6 +150,9 @@ def get_scope(client, args, token, org):
     if args.grouping == 'components':
         comp = components(issues, w_bar=True)
         print(f'Issues have {len(comp)} component(s): {",".join(comp)}.')
+    elif args.grouping == 'tags':
+        tg = tags(issues, w_bar=True)
+        print(f'Issues are tagged by {len(tg)} tag(s): {",".join(tg)}.')
     elif args. grouping == 'queues':
         qu = queues(issues, w_bar=True)
         print(f'Issues are located in {len(qu)} queue(s): {",".join(qu)}.')
