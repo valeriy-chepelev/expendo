@@ -8,6 +8,7 @@ import logging
 from issue_cache import issue_cache
 from dateutil.relativedelta import relativedelta
 from types import SimpleNamespace
+from yandex_tracker_client.exceptions import Forbidden
 
 _future_date = dt.datetime.now(dt.timezone.utc) + relativedelta(days=3)
 
@@ -65,10 +66,17 @@ def _issue_times(issue):
 @lru_cache(maxsize=None)  # Caching access to YT
 @issue_cache('cache/gli')
 def _linked_issues(issue):
+    def _accessible(object):
+        try:
+            x = object.summary is not None
+        except Forbidden:
+            x = False
+        return x
     """ Return list of issue linked subtasks """
     return [link.object for link in issue.links
             if link.type.id == 'subtask' and
-            dict(outward=link.type.inward, inward=link.type.outward)[link.direction] == 'Подзадача']
+            dict(outward=link.type.inward, inward=link.type.outward)[link.direction] == 'Подзадача' and
+            _accessible(link.object)]
 
 
 def epics(client, project):
