@@ -42,7 +42,7 @@ def _iso_hrs(s):
 
 
 def _iso_days(s):
-    """ Convert ISO dt notation to hours.
+    """ Convert ISO dt notation to days.
     Mean 8 hours per day, 5 day per week.
     Values except Weeks, Days, Hours ignored.
     Hours less than 8 rounded up to 1 day."""
@@ -66,9 +66,9 @@ def _issue_times(issue):
 @lru_cache(maxsize=None)  # Caching access to YT
 @issue_cache('cache/gli')
 def _linked_issues(issue):
-    def _accessible(object):
+    def _accessible(someone):
         try:
-            x = object.summary is not None
+            x = someone.summary is not None
         except Forbidden:
             x = False
         return x
@@ -248,9 +248,9 @@ def estimate(issues: list, dates: list, mode):
                     for date in dates}
 
 
-def get_start_date(issues: list):
+def get_start_date(issues: list, show_bar=True):
     """ Return start date (first estimation date) of issues """
-    with alive_bar(len(issues), title='Start date', theme='classic') as bar:
+    with alive_bar(len(issues), title='Start date', theme='classic', disable=not show_bar) as bar:
         try:
             d = min([t[-1]['date'] for issue in issues
                      if (len(t := _issue_times(issue)) > 0) ^ (bar() in ['nothing'])])
@@ -291,8 +291,10 @@ def _issue_original(issue):
          'end': final_date.date(),
          'original': est,
          'created': dt.datetime.strptime(issue.createdAt, '%Y-%m-%dT%H:%M:%S.%f%z').date(),
-         'valuable': issue.type.key in ['task', 'bug'],
+         'valuable': issue.type.key in ['task', 'bug'] and
+                     (issue.resolution is None or issue.resolution.key in ['fixed']),
          'finished': issue.status.key in ['resolved', 'closed'] and
+                     issue.resolution is not None and
                      issue.resolution.key in ['fixed']}
     logging.info(f'{issue.type.key} {issue.key} burn measured to: %s', r)
     return SimpleNamespace(**r)
