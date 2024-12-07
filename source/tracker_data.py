@@ -10,7 +10,7 @@ from dateutil.relativedelta import relativedelta
 from types import SimpleNamespace
 from yandex_tracker_client.exceptions import Forbidden
 
-_future_date = dt.datetime.now(dt.timezone.utc) + relativedelta(days=3)
+_future_date = dt.datetime.now(dt.timezone.utc) + relativedelta(years=3)
 
 
 def _iso_split(s, split):
