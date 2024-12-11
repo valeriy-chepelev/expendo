@@ -54,36 +54,34 @@ def original(issues, date=TODAY):
                 if (e := _issue_original(issue)).valuable & (e.created <= date <= e.end)])
 
 
-def spent(issues, date=TODAY, velo: bool = True):
+def spent(issues, date=TODAY, period: int = 0):
     """
     Summ issues spent up to the date (including), total or for a period.
     :param issues: iterable of YT issues objects
     :param date: date part value of datetime
-    :param velo: period length in days, zero means all from the beginning
+    :param period: period length in days, zero means all from the beginning
     :return: int hours
     """
-    # TODO: change velo to period
     return sum([next((s['value'] for s in _issue_times(issue)
                       if s['kind'] == 'spent' and s['date'].date() <= date), 0) -
-                int(velo) * next((s['value'] for s in _issue_times(issue)
-                                  if s['kind'] == 'spent' and s['date'].date() <=
-                                  date - dt.timedelta(days=SPRINT_LEN)), 0)
+                (next((s['value'] for s in _issue_times(issue)
+                       if s['kind'] == 'spent' and s['date'].date() <= date -
+                       dt.timedelta(days=period)), 0) if period else 0)
                 for issue in issues])
 
 
-def burned(issues, date=TODAY, velo: bool = True):
+def burned(issues, date=TODAY, period: int = 0):
     """
     Summ closed original (first before WIP) issues estimate up to the date (including),
     total or for a period.
     :param issues: iterable of YT issues objects
     :param date: date part value of datetime
-    :param velo: period length in days, zero means all from the beginning
+    :param period: period length in days, zero means all from the beginning
     :return: int hours
     """
-    # TODO: change velo to period
     return sum([e.original for issue in issues
                 if (e := _issue_original(issue)).valuable & e.finished &
-                ((date - dt.timedelta(days=SPRINT_LEN) < e.end <= date) if velo else (e.end <= date))])
+                ((date - dt.timedelta(days=period) < e.end <= date) if period else (e.end <= date))])
 
 
 def count_created(issues, date=TODAY, period: int = 0):
@@ -95,7 +93,12 @@ def count_created(issues, date=TODAY, period: int = 0):
     :param period: period length in days, zero means all from the beginning
     :return: int issues count
     """
-    pass
+    dates = [dt.datetime.strptime(issue.createdAt, '%Y-%m-%dT%H:%M:%S.%f%z').date() for issue in issues]
+    dates.sort()
+    predate = date - dt.timedelta(days=period)
+    prev = next((i for i, d in enumerate(dates) if d > predate),
+                len(dates) if dates[-1] <= predate else 0) if period else 0
+    return next((i for i, d in enumerate(dates) if d > date), len(dates) if dates[-1] <= date else 0) - prev
 
 
 def count_wip(issues, date=TODAY, period: int = 0):
@@ -119,7 +122,12 @@ def count_success(issues, date=TODAY, period: int = 0):
     :param period: period length in days, zero means total
     :return: int issues count
     """
-    pass
+    dates = [s.end for issue in issues if (s := _issue_original(issue)).valuable and s.finished]
+    dates.sort()
+    predate = date - dt.timedelta(days=period)
+    prev = next((i for i, d in enumerate(dates) if d > predate),
+                len(dates) if dates[-1] <= predate else 0) if period else 0
+    return next((i for i, d in enumerate(dates) if d > date), len(dates) if dates[-1] <= date else 0) - prev
 
 
 def ttr_stat(issues):
@@ -178,13 +186,16 @@ ts = tasks(client, 'Project: "MT SystemeLogic(ACB)" AND Queue: MTHW')
 print(f'{len(ts)} task(s) found.')
 update_dates(cfg, ts)
 table = PrettyTable()
-table.field_names = ['Date', 'Estimate', 'Original', 'Spent', 'Burned']
-velocity = False
+table.field_names = ['Date', 'Estimate', 'Original', 'Spent', 'Burned', 'Created', 'Resolved']
+# x = SPRINT_LEN
+x = 0
 for day in SPRINT_DAYS:
     table.add_row([day, estimate(ts, day),
                    original(ts, day),
-                   spent(ts, day, velocity),
-                   burned(ts, day, velocity)])
+                   spent(ts, day, x),
+                   burned(ts, day, x),
+                   count_created(ts, day, x),
+                   count_success(ts, day, x)])
 pyperclip.copy(table.get_csv_string())
 table.align = 'r'
 print(table)
