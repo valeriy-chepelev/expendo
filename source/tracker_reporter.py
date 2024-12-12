@@ -110,7 +110,9 @@ def count_wip(issues, date=TODAY, period: int = 0):
     :param period: period length in days, zero means all from the beginning
     :return: int issues count
     """
-    pass
+    cnt = 0
+    predate = date - dt.timedelta(days=period) if period else dt.date(1973,11,29)
+    return len([1 for issue in issues if max(predate, (s := _issue_original(issue)).start) <= min(date, s.end)])
 
 
 def count_success(issues, date=TODAY, period: int = 0):
@@ -136,7 +138,14 @@ def ttr_stat(issues):
     Ignores not resolved or rejected issues.
     :param issues: iterable of YT issues objects
     """
-    pass
+    ttr = [(s.end - s.start).days for issue in issues if (s := _issue_original(issue)).valuable and s.finished]
+    ttr.sort()
+    print(f'Ttr min={ttr[0]} max={ttr[-1]} med={ttr[len(ttr) // 2]} avg={sum(ttr)/len(ttr)}')
+    # checkup
+    for issue in issues:
+        s = _issue_original(issue)
+        if s.valuable and s.finished:
+            print(f'{issue.type} {issue.key}:{issue.summary} = {(s.end - s.start).days}')
 
 
 def ttj_stat(issues):
@@ -184,17 +193,16 @@ cfg = read_config('expendo.ini')
 client = TrackerClient(cfg['token'], cfg['org'])
 ts = tasks(client, 'Project: "MT SystemeLogic(ACB)" AND Queue: MTHW')
 print(f'{len(ts)} task(s) found.')
+ttr_stat(ts)
 update_dates(cfg, ts)
 table = PrettyTable()
-table.field_names = ['Date', 'Estimate', 'Original', 'Spent', 'Burned', 'Created', 'Resolved']
-# x = SPRINT_LEN
-x = 0
+table.field_names = ['Date', 'Created', 'Wip', 'Success']
+x = SPRINT_LEN
+# x = 0
 for day in SPRINT_DAYS:
-    table.add_row([day, estimate(ts, day),
-                   original(ts, day),
-                   spent(ts, day, x),
-                   burned(ts, day, x),
+    table.add_row([day,
                    count_created(ts, day, x),
+                   count_wip(ts, day, x),
                    count_success(ts, day, x)])
 pyperclip.copy(table.get_csv_string())
 table.align = 'r'
