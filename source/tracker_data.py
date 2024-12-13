@@ -281,6 +281,9 @@ def _issue_original(issue):
     final_date = next((t['date'] for t in _issue_times(issue)
                        if t['kind'] == 'resolution' and t['value'] in ['fixed']),
                       _future_date)
+    # if final_date found, but start_data wasn't (issue closed successfully without inProgres)
+    # correct start_date to the final_date
+    start_date = min(start_date, final_date)
     # find last estimation before start
     # if task not estimated before start - find any first estimation
     est = next((s['value'] for s in _issue_times(issue)

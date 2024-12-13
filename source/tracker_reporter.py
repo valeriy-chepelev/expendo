@@ -1,4 +1,3 @@
-
 from tracker_data import _linked_issues, _issue_times, _issue_original, get_start_date
 import datetime as dt
 from dateutil.rrule import rrule, DAILY, WEEKLY, MONTHLY
@@ -111,7 +110,7 @@ def count_wip(issues, date=TODAY, period: int = 0):
     :return: int issues count
     """
     cnt = 0
-    predate = date - dt.timedelta(days=period) if period else dt.date(1973,11,29)
+    predate = date - dt.timedelta(days=period) if period else dt.date(1973, 11, 29)
     return len([1 for issue in issues if max(predate, (s := _issue_original(issue)).start) <= min(date, s.end)])
 
 
@@ -137,15 +136,10 @@ def ttr_stat(issues):
     Calculate issues time-to-resolve (from first WIP to last resolution).
     Ignores not resolved or rejected issues.
     :param issues: iterable of YT issues objects
+    :return: sorted array of int (days)
     """
-    ttr = [(s.end - s.start).days for issue in issues if (s := _issue_original(issue)).valuable and s.finished]
-    ttr.sort()
-    print(f'Ttr min={ttr[0]} max={ttr[-1]} med={ttr[len(ttr) // 2]} avg={sum(ttr)/len(ttr)}')
-    # checkup
-    for issue in issues:
-        s = _issue_original(issue)
-        if s.valuable and s.finished:
-            print(f'{issue.type} {issue.key}:{issue.summary} = {(s.end - s.start).days}')
+    return sorted([(s.end - s.start).days
+                   for issue in issues if (s := _issue_original(issue)).valuable and s.finished])
 
 
 def ttj_stat(issues):
@@ -153,8 +147,14 @@ def ttj_stat(issues):
     Calculate issues time-to-job (creation to first WIP).
     Ignores untouched issues.
     :param issues: iterable of YT issues objects
+    :return: sorted array of int (days)
     """
-    pass
+    started = {issue.key: next((t['date'] for t in reversed(_issue_times(issue))
+                                if t['kind'] == 'status' and t['value'] in ['inProgress', 'testing']),
+                               None) for issue in issues}
+    return sorted([(started[issue.key].date() -
+                    dt.datetime.strptime(issue.createdAt, '%Y-%m-%dT%H:%M:%S.%f%z').date()).days
+                   for issue in issues if started[issue.key] is not None])
 
 
 def update_dates(config, issues):
@@ -189,16 +189,60 @@ from yandex_tracker_client import TrackerClient
 from prettytable import PrettyTable
 import pyperclip
 
+
+def stat_table(name, stat):
+    tbl = PrettyTable()
+    tbl.field_names = ['Min', 'Max', 'Med', 'Avg']
+    tbl.add_row([min(stat), max(stat),
+                 "{:.1f}".format(stat[len(stat) // 2] if len(stat) % 2 == 0 else (stat[len(stat) // 2] +
+                                                                                  stat[len(stat) // 2 + 1]) / 2),
+                 "{:.1f}".format(sum(stat) / len(stat))])
+    tbl.align = 'r'
+    print(name)
+    print(tbl)
+
+
+def general_stat(issues):
+    bgs = [issue for issue in issues if issue.type.key == 'bug']
+    tsks = [issue for issue in issues if issue.type.key == 'task']
+    tbl = PrettyTable()
+    tbl.field_names = ['Type', 'Count', 'Resolved', 'Rejected', 'Active', 'Spent, hrs', 'Burned, hrs', 'B/S, %']
+    tbl.add_row(['Total', len(issues),
+                 len([1 for s in issues if s.resolution is not None and s.resolution.key in ['fixed']]),
+                 len([1 for s in issues if s.resolution is not None and s.resolution.key not in ['fixed']]),
+                 len([1 for s in issues if s.resolution is None]),
+                 sp := spent(issues),
+                 br := burned(issues),
+                 "{:.1f}".format(100*br/sp)])
+    tbl.add_row(['Tasks', len(tsks),
+                 len([1 for s in tsks if s.resolution is not None and s.resolution.key in ['fixed']]),
+                 len([1 for s in tsks if s.resolution is not None and s.resolution.key not in ['fixed']]),
+                 len([1 for s in tsks if s.resolution is None]),
+                 sp := spent(tsks),
+                 br := burned(tsks),
+                 "{:.1f}".format(100*br/sp)])
+    tbl.add_row(['Bugs', len(bgs),
+                 len([1 for s in bgs if s.resolution is not None and s.resolution.key in ['fixed']]),
+                 len([1 for s in bgs if s.resolution is not None and s.resolution.key not in ['fixed']]),
+                 len([1 for s in bgs if s.resolution is None]),
+                 sp := spent(bgs),
+                 br := burned(bgs),
+                 "{:.1f}".format(100*br/sp)])
+    tbl.align = 'r'
+    print(tbl)
+
+
 cfg = read_config('expendo.ini')
 client = TrackerClient(cfg['token'], cfg['org'])
 ts = tasks(client, 'Project: "MT SystemeLogic(ACB)" AND Queue: MTHW')
-print(f'{len(ts)} task(s) found.')
-ttr_stat(ts)
+general_stat(ts)
+stat_table('TTR Stat', ttr_stat(ts))
+stat_table('TTJ Stat', ttj_stat(ts))
 update_dates(cfg, ts)
 table = PrettyTable()
 table.field_names = ['Date', 'Created', 'Wip', 'Success']
-x = SPRINT_LEN
-# x = 0
+# x = SPRINT_LEN
+x = 0
 for day in SPRINT_DAYS:
     table.add_row([day,
                    count_created(ts, day, x),
