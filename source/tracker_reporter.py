@@ -188,6 +188,7 @@ from expendo import read_config
 from yandex_tracker_client import TrackerClient
 from prettytable import PrettyTable
 import pyperclip
+from numpy import histogram
 
 
 def stat_table(name, stat):
@@ -200,6 +201,11 @@ def stat_table(name, stat):
     tbl.align = 'r'
     print(name)
     print(tbl)
+    hist, bins = histogram(stat, bins=[0, 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, max(stat)])
+    hdata = list(zip(bins[1:], hist))
+    print('histogram data:')
+    print(','.join([str(x) for x in bins[1:]]))
+    print(','.join([str(x) for x in hist]))
 
 
 def general_stat(issues):
