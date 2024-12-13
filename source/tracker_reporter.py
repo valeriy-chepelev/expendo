@@ -109,7 +109,6 @@ def count_wip(issues, date=TODAY, period: int = 0):
     :param period: period length in days, zero means all from the beginning
     :return: int issues count
     """
-    cnt = 0
     predate = date - dt.timedelta(days=period) if period else dt.date(1973, 11, 29)
     return len([1 for issue in issues if max(predate, (s := _issue_original(issue)).start) <= min(date, s.end)])
 
@@ -193,15 +192,18 @@ from numpy import histogram
 
 def stat_table(name, stat):
     tbl = PrettyTable()
-    tbl.field_names = ['Min', 'Max', 'Med', 'Avg']
-    tbl.add_row([min(stat), max(stat),
-                 "{:.1f}".format(stat[len(stat) // 2] if len(stat) % 2 == 0 else (stat[len(stat) // 2] +
-                                                                                  stat[len(stat) // 2 + 1]) / 2),
-                 "{:.1f}".format(sum(stat) / len(stat))])
+    tbl.field_names = ['Min', 'Max', 'Median', 'Average']
+    if len(stat):
+        tbl.add_row([min(stat), max(stat),
+                     "{:.1f}".format(stat[len(stat) // 2] if len(stat) % 2 == 0 else (stat[len(stat) // 2] +
+                                                                                      stat[len(stat) // 2 + 1]) / 2),
+                     "{:.1f}".format(sum(stat) / len(stat))])
+    else:
+        tbl.add_row(['n/a', 'n/a', 'n/a', 'n/a'])
     tbl.align = 'r'
-    print(name)
+    print(name, 'days', sep=', ')
     print(tbl)
-    hist, bins = histogram(stat, bins=[0, 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, max(stat)])
+    hist, bins = histogram(stat, bins=[0, 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, max(stat + [60])])
     hdata = list(zip(bins[1:], hist))
     print('histogram data:')
     print(','.join([str(x) for x in bins[1:]]))
@@ -212,38 +214,41 @@ def general_stat(issues):
     bgs = [issue for issue in issues if issue.type.key == 'bug']
     tsks = [issue for issue in issues if issue.type.key == 'task']
     tbl = PrettyTable()
-    tbl.field_names = ['Type', 'Count', 'Resolved', 'Rejected', 'Active', 'Spent, hrs', 'Burned, hrs', 'B/S, %']
-    tbl.add_row(['Total', len(issues),
-                 len([1 for s in issues if s.resolution is not None and s.resolution.key in ['fixed']]),
-                 len([1 for s in issues if s.resolution is not None and s.resolution.key not in ['fixed']]),
-                 len([1 for s in issues if s.resolution is None]),
-                 sp := spent(issues),
-                 br := burned(issues),
-                 "{:.1f}".format(100*br/sp)])
+    tbl.field_names = ['Type', 'Count', 'Resolved', 'Rejected', 'Active', 'Days spent', 'Days burned', 'B/S, %']
     tbl.add_row(['Tasks', len(tsks),
                  len([1 for s in tsks if s.resolution is not None and s.resolution.key in ['fixed']]),
                  len([1 for s in tsks if s.resolution is not None and s.resolution.key not in ['fixed']]),
                  len([1 for s in tsks if s.resolution is None]),
-                 sp := spent(tsks),
-                 br := burned(tsks),
-                 "{:.1f}".format(100*br/sp)])
+                 (sp := spent(tsks)) // 8,
+                 (br := burned(tsks)) // 8,
+                 "{:.1f}".format(100 * br / sp) if sp else 'n/a'])
     tbl.add_row(['Bugs', len(bgs),
                  len([1 for s in bgs if s.resolution is not None and s.resolution.key in ['fixed']]),
                  len([1 for s in bgs if s.resolution is not None and s.resolution.key not in ['fixed']]),
                  len([1 for s in bgs if s.resolution is None]),
-                 sp := spent(bgs),
-                 br := burned(bgs),
-                 "{:.1f}".format(100*br/sp)])
+                 (sp := spent(bgs)) // 8,
+                 (br := burned(bgs)) // 8,
+                 "{:.1f}".format(100 * br / sp) if sp else 'n/a'], divider=True)
+    tbl.add_row(['Total', len(issues),
+                 len([1 for s in issues if s.resolution is not None and s.resolution.key in ['fixed']]),
+                 len([1 for s in issues if s.resolution is not None and s.resolution.key not in ['fixed']]),
+                 len([1 for s in issues if s.resolution is None]),
+                 (sp := spent(issues)) // 8,
+                 (br := burned(issues)) // 8,
+                 "{:.1f}".format(100 * br / sp) if sp else 'n/a'])
     tbl.align = 'r'
     print(tbl)
 
 
 cfg = read_config('expendo.ini')
 client = TrackerClient(cfg['token'], cfg['org'])
-ts = tasks(client, 'Project: "MT SystemeLogic(ACB)" AND Queue: MTHW')
+
+# ts = tasks(client, 'Project: "MT SystemeLogic(ACB)" AND Queue: MTFW')
+ts = tasks(client, 'Project: "MT ДУГА-О2 Нео" AND Queue: MTFW')
+
 general_stat(ts)
-stat_table('TTR Stat', ttr_stat(ts))
-stat_table('TTJ Stat', ttj_stat(ts))
+stat_table('Time To Resolve', ttr_stat(ts))
+stat_table('Time To Start', ttj_stat(ts))
 update_dates(cfg, ts)
 table = PrettyTable()
 table.field_names = ['Date', 'Created', 'Wip', 'Success']
