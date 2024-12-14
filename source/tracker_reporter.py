@@ -188,7 +188,8 @@ from yandex_tracker_client import TrackerClient
 from prettytable import PrettyTable
 import pyperclip
 from numpy import histogram
-
+import matplotlib
+import matplotlib.pyplot as plt
 
 def stat_table(name, stat):
     tbl = PrettyTable()
@@ -203,11 +204,19 @@ def stat_table(name, stat):
     tbl.align = 'r'
     print(name, 'days', sep=', ')
     print(tbl)
-    hist, bins = histogram(stat, bins=[0, 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, max(stat + [60])])
-    hdata = list(zip(bins[1:], hist))
+    max_val = min(70, 7 * (max(stat) // 7))
+    bins = sorted(list(set(range(0, max_val, 7)).union({1, max_val, max(stat)})))
+    hist, bins = histogram(stat, bins=bins)
     print('histogram data:')
     print(','.join([str(x) for x in bins[1:]]))
     print(','.join([str(x) for x in hist]))
+    fig, ax = plt.subplots()
+    ax.bar([str(x) for x in bins[1:]], hist, align='edge', width=-1)
+    plt.grid()
+    plt.xlabel('days')
+    plt.ylabel('issues')
+    plt.title(name)
+    plt.draw()
 
 
 def general_stat(issues):
@@ -243,9 +252,10 @@ def general_stat(issues):
 cfg = read_config('expendo.ini')
 client = TrackerClient(cfg['token'], cfg['org'])
 
-# ts = tasks(client, 'Project: "MT SystemeLogic(ACB)" AND Queue: MTFW')
-ts = tasks(client, 'Project: "MT ДУГА-О2 Нео" AND Queue: MTFW')
+ts = tasks(client, 'Project: "MT SystemeLogic(ACB)" AND Queue: MTFW')
+# ts = tasks(client, 'Project: "MT ДУГА-О2 Нео" AND Queue: MTFW')
 
+matplotlib.use('TkAgg')
 general_stat(ts)
 stat_table('Time To Resolve', ttr_stat(ts))
 stat_table('Time To Start', ttj_stat(ts))
@@ -262,3 +272,6 @@ for day in SPRINT_DAYS:
 pyperclip.copy(table.get_csv_string())
 table.align = 'r'
 print(table)
+print('Close plot widget(s) to continue...')
+plt.show()
+
