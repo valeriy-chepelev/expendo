@@ -187,20 +187,23 @@ from expendo import read_config
 from yandex_tracker_client import TrackerClient
 from prettytable import PrettyTable
 import pyperclip
-from numpy import histogram
+from numpy import histogram, median, mean, std
 import matplotlib
 import matplotlib.pyplot as plt
 
+
 def stat_table(name, stat):
     tbl = PrettyTable()
-    tbl.field_names = ['Min', 'Max', 'Median', 'Average']
+    tbl.field_names = ['Min', 'Max', 'Median', 'Mean']
     if len(stat):
         tbl.add_row([min(stat), max(stat),
-                     "{:.1f}".format(stat[len(stat) // 2] if len(stat) % 2 == 0 else (stat[len(stat) // 2] +
-                                                                                      stat[len(stat) // 2 + 1]) / 2),
-                     "{:.1f}".format(sum(stat) / len(stat))])
+                     "{:.1f}".format(med := (stat[len(stat) // 2] if len(stat) % 2 == 0
+                                             else (stat[len(stat) // 2] + stat[len(stat) // 2 + 1]) / 2)),
+                     "{:.1f}".format(avg := (sum(stat) / len(stat)))])
     else:
         tbl.add_row(['n/a', 'n/a', 'n/a', 'n/a'])
+        med = 0
+        avg = 0
     tbl.align = 'r'
     print(name, 'days', sep=', ')
     print(tbl)
@@ -212,6 +215,19 @@ def stat_table(name, stat):
     print(','.join([str(x) for x in hist]))
     fig, ax = plt.subplots()
     ax.bar([str(x) for x in bins[1:]], hist, align='edge', width=-1)
+
+    textstr = '\n'.join((
+        r'$\mu=%.2f$' % (mean(stat),),
+        r'$\mathrm{median}=%.2f$' % (median(stat),),
+        r'$\sigma=%.2f$' % (std(stat),)))
+    # these are matplotlib.patch.Patch properties
+    props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+    # place a text box in upper left in axes coords
+    ax.text(0.5, 0.95, textstr, transform=ax.transAxes, fontsize=14,
+            verticalalignment='top', bbox=props)
+
+    ax.vlines([str(min(bins, key=lambda x: abs(x - med))), str(min(bins, key=lambda x: abs(x - avg)))],
+              ymin=0, ymax=max(hist), colors='r')
     plt.grid()
     plt.xlabel('days')
     plt.ylabel('issues')
@@ -274,4 +290,3 @@ table.align = 'r'
 print(table)
 print('Close plot widget(s) to continue...')
 plt.show()
-
