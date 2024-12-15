@@ -192,47 +192,67 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 
-def stat_table(name, stat):
-    tbl = PrettyTable()
-    tbl.field_names = ['Min', 'Max', 'Median', 'Mean']
-    if len(stat):
-        tbl.add_row([min(stat), max(stat),
-                     "{:.1f}".format(med := (stat[len(stat) // 2] if len(stat) % 2 == 0
-                                             else (stat[len(stat) // 2] + stat[len(stat) // 2 + 1]) / 2)),
-                     "{:.1f}".format(avg := (sum(stat) / len(stat)))])
-    else:
-        tbl.add_row(['n/a', 'n/a', 'n/a', 'n/a'])
-        med = 0
-        avg = 0
-    tbl.align = 'r'
-    print(name, 'days', sep=', ')
-    print(tbl)
+def stat_histogram(name, stat):
     max_val = min(70, 7 * (max(stat) // 7))
     bins = sorted(list(set(range(0, max_val, 7)).union({1, max_val, max(stat)})))
     hist, bins = histogram(stat, bins=bins)
-    print('histogram data:')
-    print(','.join([str(x) for x in bins[1:]]))
-    print(','.join([str(x) for x in hist]))
     fig, ax = plt.subplots()
     ax.bar([str(x) for x in bins[1:]], hist, align='edge', width=-1)
-
-    textstr = '\n'.join((
-        r'$\mu=%.2f$' % (mean(stat),),
+    text_str = '\n'.join((
         r'$\mathrm{median}=%.2f$' % (median(stat),),
+        r'$\mu=%.2f$' % (mean(stat),),
         r'$\sigma=%.2f$' % (std(stat),)))
-    # these are matplotlib.patch.Patch properties
     props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-    # place a text box in upper left in axes coords
-    ax.text(0.5, 0.95, textstr, transform=ax.transAxes, fontsize=14,
+    ax.text(0.95, 0.95, text_str, transform=ax.transAxes, ha='right', va='top', fontsize=14,
             verticalalignment='top', bbox=props)
-
-    ax.vlines([str(min(bins, key=lambda x: abs(x - med))), str(min(bins, key=lambda x: abs(x - avg)))],
-              ymin=0, ymax=max(hist), colors='r')
+    # ax.vlines([str(min(bins, key=lambda x: abs(x - med))),
+    #           str(min(bins, key=lambda x: abs(x - avg)))],
+    #          ymin=0, ymax=max(hist), colors='r')
     plt.grid()
     plt.xlabel('days')
     plt.ylabel('issues')
     plt.title(name)
     plt.draw()
+
+
+def general_plot(issues):
+    bgs = [issue for issue in issues if issue.type.key == 'bug']
+    tsks = [issue for issue in issues if issue.type.key == 'task']
+    fig, axs = plt.subplots(2, 2)
+    ax = axs[0][0]
+    patches, *_ = ax.pie([len([1 for s in tsks if s.resolution is not None and s.resolution.key in ['fixed']]),
+                          len([1 for s in tsks if s.resolution is not None and s.resolution.key not in ['fixed']]),
+                          len([1 for s in tsks if s.resolution is None])],
+                         autopct=lambda a: f"{a:.1f}%\n{a * len(tsks) / 100:.0f}", pctdistance=1.3,
+                         textprops={'size': 'smaller'})
+    ax.legend(patches, ['Resolved', 'Rejected', 'Active'], loc='lower left')
+    ax.set_title('Tasks')
+    ax = axs[1][0]
+    patches, *_ = ax.pie([len([1 for s in bgs if s.resolution is not None and s.resolution.key in ['fixed']]),
+                          len([1 for s in bgs if s.resolution is not None and s.resolution.key not in ['fixed']]),
+                          len([1 for s in bgs if s.resolution is None])],
+                         autopct=lambda a: f"{a:.1f}%\n{a * len(bgs) / 100:.0f}", pctdistance=1.3,
+                         textprops={'size': 'smaller'})
+    ax.legend(patches, ['Resolved', 'Rejected', 'Active'], loc='lower left')
+    ax.set_title('Bugs')
+    ax = axs[0][1]
+    patches = ax.bar(['Spent', 'Burned'], [(sp := spent(tsks)) // 8, brd := (br := burned(tsks)) // 8],
+                     color=['tab:blue', 'tab:orange'])
+    ax.bar_label(patches, label_type='center',
+                 fmt=lambda a: '\n'.join([f'{a:.0f}', f'{br / sp * 100:.1f}%' if sp and (a == brd) else '']))
+    ax.axes.get_yaxis().set_visible(False)
+    ax.spines['left'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    ax = axs[1][1]
+    patches = ax.bar(['Spent', 'Burned'], [(sp := spent(bgs)) // 8, brd := (br := burned(bgs)) // 8],
+                     color=['tab:blue', 'tab:orange'])
+    ax.bar_label(patches, label_type='center',
+                 fmt=lambda a: '\n'.join([f'{a:.0f}', f'{br / sp * 100:.1f}%' if sp and (a == brd) else '']))
+    ax.axes.get_yaxis().set_visible(False)
+    ax.spines['left'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['top'].set_visible(False)
 
 
 def general_stat(issues):
@@ -268,13 +288,14 @@ def general_stat(issues):
 cfg = read_config('expendo.ini')
 client = TrackerClient(cfg['token'], cfg['org'])
 
-ts = tasks(client, 'Project: "MT SystemeLogic(ACB)" AND Queue: MTFW')
-# ts = tasks(client, 'Project: "MT ДУГА-О2 Нео" AND Queue: MTFW')
+# ts = tasks(client, 'Project: "MT SystemeLogic(ACB)" AND Queue: MTHW')
+ts = tasks(client, 'Project: "MT ДУГА-О2 Нео" AND Queue: MTHW')
 
 matplotlib.use('TkAgg')
 general_stat(ts)
-stat_table('Time To Resolve', ttr_stat(ts))
-stat_table('Time To Start', ttj_stat(ts))
+# general_plot(ts)
+stat_histogram('Time To Resolve', ttr_stat(ts))
+stat_histogram('Time To Start', ttj_stat(ts))
 update_dates(cfg, ts)
 table = PrettyTable()
 table.field_names = ['Date', 'Created', 'Wip', 'Success']
