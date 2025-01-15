@@ -2,6 +2,14 @@ from tracker_data import _linked_issues, _issue_times, _issue_original, get_star
 import datetime as dt
 from dateutil.rrule import rrule, DAILY, WEEKLY, MONTHLY
 
+from expendo import read_config
+from yandex_tracker_client import TrackerClient
+from prettytable import PrettyTable
+import pyperclip
+from numpy import histogram, median, mean, std, ceil
+import matplotlib
+import matplotlib.pyplot as plt
+
 TODAY = dt.datetime.now(dt.timezone.utc).date()
 ACTIVE_SPRINT_START = TODAY
 FUTURE_SPRINT_START = TODAY
@@ -141,6 +149,46 @@ def ttr_stat(issues):
                    for issue in issues if (s := _issue_original(issue)).valuable and s.finished])
 
 
+def issues_delay(issues):
+    """
+    Calculate spent-to-estimate ratio of issues.
+    Ignores not resolved or rejected or zero-estimated issues.
+    :param issues: iterable of YT issues objects
+    :return: dictionary issue_key - ratio
+    """
+    return {issue.key: next((t['value'] for t in _issue_times(issue)
+                             if t['kind'] == 'spent'), 0) / s.original
+            for issue in issues if (s := _issue_original(issue)).valuable and s.finished and s.original > 0}
+
+
+def issues_delay_stat(issues):
+    delays = issues_delay(issues)
+    stat = list(delays.values())
+
+    # bins = [round(b/10, 1) for b in range(0, int(10 * max(stat)))]
+    # bins.append(int(ceil(max(stat))))
+    hist, bins = histogram(stat)
+    fig, ax = plt.subplots()
+    ax.bar([r'%.2f' % (x,) for x in bins[1:]], hist, align='edge', width=-1)
+
+    text_str = '\n'.join((
+        r'$\mathrm{median}=%.2f$' % (median(stat),),
+        r'$\mu=%.2f$' % (mean(stat),),
+        r'$\sigma=%.2f$' % (std(stat),)))
+
+    props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+    ax.text(0.95, 0.95, text_str, transform=ax.transAxes, ha='right', va='top', fontsize=14,
+            verticalalignment='top', bbox=props)
+    plt.grid()
+    plt.xlabel('s/e')
+    plt.ylabel('issues')
+    plt.title('Spent/estimate')
+    plt.draw()
+
+    ds = dict(sorted(delays.items(), key=lambda item: item[1], reverse=True)[0: 3])
+    print(ds)
+
+
 def ttj_stat(issues):
     """
     Calculate issues time-to-job (creation to first WIP).
@@ -183,13 +231,10 @@ def update_dates(config, issues):
     ALL_DAYS = [r.date() for r in rrule(DAILY, interval=1, dtstart=start, until=FUTURE_SPRINT_START)]
 
 
-from expendo import read_config
-from yandex_tracker_client import TrackerClient
-from prettytable import PrettyTable
-import pyperclip
-from numpy import histogram, median, mean, std
-import matplotlib
-import matplotlib.pyplot as plt
+"""
+
+
+"""
 
 
 def stat_histogram(name, stat):
@@ -259,7 +304,7 @@ def general_stat(issues):
     bgs = [issue for issue in issues if issue.type.key == 'bug']
     tsks = [issue for issue in issues if issue.type.key == 'task']
     tbl = PrettyTable()
-    tbl.field_names = ['Type', 'Count', 'Resolved', 'Rejected', 'Active', 'Days spent', 'Days burned', 'B/S, %']
+    tbl.field_names = ['Type', 'Count', 'Resolved', 'Rejected', 'Active', 'Days spent', 'Days burned', 'B/S %']
     tbl.add_row(['Tasks', len(tsks),
                  len([1 for s in tsks if s.resolution is not None and s.resolution.key in ['fixed']]),
                  len([1 for s in tsks if s.resolution is not None and s.resolution.key not in ['fixed']]),
@@ -282,32 +327,57 @@ def general_stat(issues):
                  (br := burned(issues)) // 8,
                  "{:.1f}".format(100 * br / sp) if sp else 'n/a'])
     tbl.align = 'r'
+    # pyperclip.copy(tbl.get_csv_string())
     print(tbl)
 
 
 cfg = read_config('expendo.ini')
 client = TrackerClient(cfg['token'], cfg['org'])
 
-# ts = tasks(client, 'Project: "MT SystemeLogic(ACB)" AND Queue: MTHW')
-ts = tasks(client, 'Project: "MT ДУГА-О2 Нео" AND Queue: MTHW')
+# ts = tasks(client, 'Key: MTPD-1095')
+# ts = tasks(client, 'Project: "MT SystemeLogic(ACB)" AND Tags: construction')
+ts = tasks(client, 'Project: "MT ДУГА-О2 Нео" AND Queue: MTFW')
+update_dates(cfg, ts)
+
+"""
+print(f'{len(ts)} issues found.')
+print(f'Today original estimate = {original(ts)} hrs.')
+table = PrettyTable()
+table.field_names = ['Date', 'Burned', 'Spent']
+for day in SPRINT_DAYS:
+    table.add_row([day, burned(ts, day), spent(ts, day)])
+pyperclip.copy(table.get_csv_string())
+table.align = 'r'
+print(table)
+"""
 
 matplotlib.use('TkAgg')
+
 general_stat(ts)
 # general_plot(ts)
 stat_histogram('Time To Resolve', ttr_stat(ts))
 stat_histogram('Time To Start', ttj_stat(ts))
-update_dates(cfg, ts)
+
 table = PrettyTable()
-table.field_names = ['Date', 'Created', 'Wip', 'Success']
+table.field_names = ['Date', 'Created in sp', 'Wip in sp', 'Fixed in sp', 'Spent',
+                     'Estimate', 'Original estimate', 'Original burned']
 # x = SPRINT_LEN
-x = 0
+# x = 0
 for day in SPRINT_DAYS:
     table.add_row([day,
-                   count_created(ts, day, x),
-                   count_wip(ts, day, x),
-                   count_success(ts, day, x)])
+                   count_created(ts, day, SPRINT_LEN),
+                   count_wip(ts, day, SPRINT_LEN),
+                   count_success(ts, day, SPRINT_LEN),
+                   spent(ts,day),
+                   estimate(ts, day),
+                   original(ts, day),
+                   burned(ts, day)
+                   ])
 pyperclip.copy(table.get_csv_string())
 table.align = 'r'
 print(table)
+
 print('Close plot widget(s) to continue...')
+
+issues_delay_stat(ts)
 plt.show()
