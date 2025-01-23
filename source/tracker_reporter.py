@@ -10,22 +10,71 @@ from numpy import histogram, median, mean, std, ceil
 import matplotlib
 import matplotlib.pyplot as plt
 
-TODAY = dt.datetime.now(dt.timezone.utc).date()
-ACTIVE_SPRINT_START = TODAY
-FUTURE_SPRINT_START = TODAY
-SPRINT_DAYS = [TODAY]
-ALL_DAYS = [TODAY]
-SPRINT_LEN = 14
+
+"""
+
+  ============== Unit globals ===================
+  use update_dates to update values
+
+"""
+
+TODAY = dt.datetime.now(dt.timezone.utc).date()  # Today, actually
+ACTIVE_SPRINT_START = TODAY  # Date of active sprint start
+FUTURE_SPRINT_START = TODAY  # Date of future sprint start
+SPRINT_DAYS = [TODAY]  # List sprints start dates covering all the selected tasks
+ALL_DAYS = [TODAY]  # List of all dates (daily) covering all the selected tasks
+SPRINT_LEN = 14  # Days per sprint
 
 
-def tasks(client, request, scan: bool = True) -> list:
+def update_dates(config, issues):
+    """
+    Update unit globals according to config and selected issues.
+    Execute after selecting issues before core data extraction.
+    :param config: dict-like configuration object with d.m.y date 'sprint_base' and int 'sprint_len'
+    :param issues: iterable of YT issues objects
+    """
+    # reset globals to default today
+    global ACTIVE_SPRINT_START
+    global FUTURE_SPRINT_START
+    global SPRINT_DAYS
+    global ALL_DAYS
+    global SPRINT_LEN
+    ACTIVE_SPRINT_START = TODAY
+    FUTURE_SPRINT_START = TODAY
+    SPRINT_DAYS = [TODAY]
+    ALL_DAYS = [TODAY]
+    # convert values from config
+    base_date = dt.datetime.strptime(config['sprint_base'], '%d.%m.%y').date()
+    SPRINT_LEN = int(config['sprint_len'])
+    # find sprint start by rounding today downward
+    ACTIVE_SPRINT_START -= dt.timedelta(days=SPRINT_LEN - abs((ACTIVE_SPRINT_START - base_date).days) % SPRINT_LEN)
+    # find sprint end by rounding today forward
+    FUTURE_SPRINT_START += dt.timedelta(days=abs((FUTURE_SPRINT_START - base_date).days) % SPRINT_LEN)
+    # get first estimation of issues
+    start = get_start_date(issues, show_bar=False).date()
+    # find first sprint by rounding start downward
+    start -= dt.timedelta(days=SPRINT_LEN - abs((start - base_date).days) % SPRINT_LEN)
+    # generate days and remove time
+    SPRINT_DAYS = [r.date() for r in rrule(DAILY, interval=SPRINT_LEN, dtstart=start, until=FUTURE_SPRINT_START)]
+    ALL_DAYS = [r.date() for r in rrule(DAILY, interval=1, dtstart=start, until=FUTURE_SPRINT_START)]
+
+
+"""
+
+  ============== Tasks selector ===================
+
+"""
+
+
+def select(client, request, scan: bool = False) -> list:
     """ Search Tasks and Bugs using YT query.
-    Includes all the sibling task within Epics and Stories given by query.
+    Includes all the sibling task within Epics and Stories if scan=True.
     :param client: TrackerClient object
     :param request: string with YT query language
     :param scan: scan and include all the sibling task within Epics and Stories given by request
     :return: list of YT issues objects"""
     issues = client.issues.find(query=request)
+    print(f'{len(issues)} issues retrieved from YT.')
     tickets = {issue.key: issue for issue in issues if issue.type.key in ['task', 'bug']}
     if scan:
         ancestors = [issue for issue in issues if issue.type.key not in ['task', 'bug']]
@@ -34,6 +83,21 @@ def tasks(client, request, scan: bool = True) -> list:
             tickets.update({issue.key: issue for issue in siblings if issue.type.key in ['task', 'bug']})
             ancestors.extend([issue for issue in siblings if issue.type.key not in ['task', 'bug']])
     return list(tickets.values())
+
+
+def keys(issues) -> str:
+    """
+    Convert tracker issues to keys. Use for chained issue selection.
+    :param issues: iterable of YT issues objects
+    :return: comma-separated issues keys
+    """
+    return ','.join([issue.key for issue in issues])
+
+"""
+
+  ============== Core data extraction methods ===================
+
+"""
 
 
 def estimate(issues, date=TODAY):
@@ -161,34 +225,6 @@ def issues_delay(issues):
             for issue in issues if (s := _issue_original(issue)).valuable and s.finished and s.original > 0}
 
 
-def issues_delay_stat(issues):
-    delays = issues_delay(issues)
-    stat = list(delays.values())
-
-    # bins = [round(b/10, 1) for b in range(0, int(10 * max(stat)))]
-    # bins.append(int(ceil(max(stat))))
-    hist, bins = histogram(stat)
-    fig, ax = plt.subplots()
-    ax.bar([r'%.2f' % (x,) for x in bins[1:]], hist, align='edge', width=-1)
-
-    text_str = '\n'.join((
-        r'$\mathrm{median}=%.2f$' % (median(stat),),
-        r'$\mu=%.2f$' % (mean(stat),),
-        r'$\sigma=%.2f$' % (std(stat),)))
-
-    props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-    ax.text(0.95, 0.95, text_str, transform=ax.transAxes, ha='right', va='top', fontsize=14,
-            verticalalignment='top', bbox=props)
-    plt.grid()
-    plt.xlabel('s/e')
-    plt.ylabel('issues')
-    plt.title('Spent/estimate')
-    plt.draw()
-
-    ds = dict(sorted(delays.items(), key=lambda item: item[1], reverse=True)[0: 3])
-    print(ds)
-
-
 def ttj_stat(issues):
     """
     Calculate issues time-to-job (creation to first WIP).
@@ -204,35 +240,9 @@ def ttj_stat(issues):
                    for issue in issues if started[issue.key] is not None])
 
 
-def update_dates(config, issues):
-    # reset globals to default today
-    global ACTIVE_SPRINT_START
-    global FUTURE_SPRINT_START
-    global SPRINT_DAYS
-    global ALL_DAYS
-    global SPRINT_LEN
-    ACTIVE_SPRINT_START = TODAY
-    FUTURE_SPRINT_START = TODAY
-    SPRINT_DAYS = [TODAY]
-    ALL_DAYS = [TODAY]
-    # convert values from config
-    base_date = dt.datetime.strptime(config['sprint_base'], '%d.%m.%y').date()
-    SPRINT_LEN = int(config['sprint_len'])
-    # find sprint start by rounding today downward
-    ACTIVE_SPRINT_START -= dt.timedelta(days=SPRINT_LEN - abs((ACTIVE_SPRINT_START - base_date).days) % SPRINT_LEN)
-    # find sprint end by rounding today forward
-    FUTURE_SPRINT_START += dt.timedelta(days=abs((FUTURE_SPRINT_START - base_date).days) % SPRINT_LEN)
-    # get first estimation of issues
-    start = get_start_date(issues, show_bar=False).date()
-    # find first sprint by rounding start downward
-    start -= dt.timedelta(days=SPRINT_LEN - abs((start - base_date).days) % SPRINT_LEN)
-    # generate days and remove time
-    SPRINT_DAYS = [r.date() for r in rrule(DAILY, interval=SPRINT_LEN, dtstart=start, until=FUTURE_SPRINT_START)]
-    ALL_DAYS = [r.date() for r in rrule(DAILY, interval=1, dtstart=start, until=FUTURE_SPRINT_START)]
-
-
 """
 
+  ============== Data Visualisation ===================
 
 """
 
@@ -258,6 +268,33 @@ def stat_histogram(name, stat):
     plt.ylabel('issues')
     plt.title(name)
     plt.draw()
+
+
+def issues_delay_stat(issues):
+    delays = issues_delay(issues)
+    stat = list(delays.values())
+
+    hist, bins = histogram(stat)
+    fig, ax = plt.subplots()
+    ax.bar([r'%.2f' % (x,) for x in bins[1:]], hist, align='edge', width=-1)
+
+    text_str = '\n'.join((
+        r'$\mathrm{median}=%.2f$' % (median(stat),),
+        r'$\mu=%.2f$' % (mean(stat),),
+        r'$\sigma=%.2f$' % (std(stat),)))
+
+    props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+    ax.text(0.95, 0.95, text_str, transform=ax.transAxes, ha='right', va='top', fontsize=14,
+            verticalalignment='top', bbox=props)
+    plt.grid()
+    plt.xlabel('s/e')
+    plt.ylabel('issues')
+    plt.title('Spent/estimate')
+    plt.draw()
+
+    # TODO: Make pretty print of n worst tasks
+    ds = dict(sorted(delays.items(), key=lambda item: item[1], reverse=True)[0: 3])
+    print(ds)
 
 
 def general_plot(issues):
@@ -327,29 +364,51 @@ def general_stat(issues):
                  (br := burned(issues)) // 8,
                  "{:.1f}".format(100 * br / sp) if sp else 'n/a'])
     tbl.align = 'r'
-    # pyperclip.copy(tbl.get_csv_string())
+    pyperclip.copy(tbl.get_csv_string())
     print(tbl)
 
+
+# =========== General execution ==============
 
 cfg = read_config('expendo.ini')
 client = TrackerClient(cfg['token'], cfg['org'])
 
-# ts = tasks(client, 'Key: MTPD-1095')
-# ts = tasks(client, 'Project: "MT SystemeLogic(ACB)" AND Tags: construction')
-ts = tasks(client, 'Project: "MT ДУГА-О2 Нео" AND Queue: MTFW')
+# simple select
+# ts = select(client, 'Project: "МТ SystemeSmart" AND Tags: fw')
+
+# chained select
+ts = select(client, 'Key: MTPD-895,MTPD-761', scan=True)
+ts = select(client, 'Key: ' + keys(ts) + 'AND Tags: fw')
+
 update_dates(cfg, ts)
 
 """
-print(f'{len(ts)} issues found.')
-print(f'Today original estimate = {original(ts)} hrs.')
+# =============== Velocity Report ====================
+
 table = PrettyTable()
-table.field_names = ['Date', 'Burned', 'Spent']
-for day in SPRINT_DAYS:
-    table.add_row([day, burned(ts, day), spent(ts, day)])
-pyperclip.copy(table.get_csv_string())
+table.field_names = ['Date', 'Burned']
+for day in SPRINT_DAYS[-10:]:
+    table.add_row([day, burned(ts, day, SPRINT_LEN)])
+# pyperclip.copy(table.get_csv_string())
 table.align = 'r'
+print('Velocity report')
 print(table)
 """
+
+# =============== Project Review Report ===============
+
+print(f'{len(ts)} issues found.')
+print(f'Today original estimate = {original(ts)} hrs.')
+#table = PrettyTable()
+#table.field_names = ['Date', 'Burned', 'Spent']
+#for day in SPRINT_DAYS:
+#    table.add_row([day, burned(ts, day), spent(ts, day)])
+#pyperclip.copy(table.get_csv_string())
+#table.align = 'r'
+#print(table)
+"""
+
+# ======== Report for Retro =================
 
 matplotlib.use('TkAgg')
 
@@ -357,6 +416,7 @@ general_stat(ts)
 # general_plot(ts)
 stat_histogram('Time To Resolve', ttr_stat(ts))
 stat_histogram('Time To Start', ttj_stat(ts))
+issues_delay_stat(ts)
 
 table = PrettyTable()
 table.field_names = ['Date', 'Created in sp', 'Wip in sp', 'Fixed in sp', 'Spent',
@@ -379,5 +439,5 @@ print(table)
 
 print('Close plot widget(s) to continue...')
 
-issues_delay_stat(ts)
 plt.show()
+"""
