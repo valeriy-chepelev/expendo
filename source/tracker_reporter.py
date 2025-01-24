@@ -85,13 +85,27 @@ def select(client, request, scan: bool = False) -> list:
     return list(tickets.values())
 
 
+def scan_select(client, parent_keys: list, request) -> list:
+    """
+    Scan Epics and Stories given by parent_keys to tasks and bugs,
+    and executes YT query to collected tasks.
+    :param client: TrackerClient object
+    :param parent_keys: list of strings with keys of epics, stories
+    :param request: string with YT query language
+    :return: list of YT issues objects
+    """
+    tickets = select(client, f'Key: {",".join(parent_keys)}', scan=True)
+    return select(client, f'Key: {keys(tickets)} AND {request}')
+
+
 def keys(issues) -> str:
     """
-    Convert tracker issues to keys. Use for chained issue selection.
+    Convert tracker issues to keys.
     :param issues: iterable of YT issues objects
     :return: comma-separated issues keys
     """
-    return ','.join([issue.key for issue in issues])
+    return ",".join([issue.key for issue in issues])
+
 
 """
 
@@ -377,8 +391,7 @@ client = TrackerClient(cfg['token'], cfg['org'])
 # ts = select(client, 'Project: "МТ SystemeSmart" AND Tags: fw')
 
 # chained select
-ts = select(client, 'Key: MTPD-895,MTPD-761', scan=True)
-ts = select(client, 'Key: ' + keys(ts) + 'AND Tags: fw')
+ts = scan_select(client, ['MTPD-895', 'MTPD-761'], 'Tags: fw')
 
 update_dates(cfg, ts)
 
