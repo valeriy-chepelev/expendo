@@ -18,6 +18,13 @@ import logging
 from entities import projects as get_projects
 
 
+# TODO: Change issue selector to select issues by query or hierarchically (see costsheet.py)
+# TODO: Change param selector to select set of params
+# TODO: Change category selector to select set of category values (i.e. only pair of tags not all tags)
+# TODO: Exporters: to Excel file, to csv, to clipboard (see sprints.py), no tabulators?
+# TODO: Think advanced time range selector
+# TODO: Remove trends (?)
+
 def read_config(filename):
     config = configparser.ConfigParser()
     config.read(filename)

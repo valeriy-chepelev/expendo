@@ -241,7 +241,7 @@ def issues_delay(issues):
 
 def ttj_stat(issues):
     """
-    Calculate issues time-to-job (creation to first WIP).
+    Calculate issues time-to-job ratio (creation to first WIP).
     Ignores untouched issues.
     :param issues: iterable of YT issues objects
     :return: sorted array of int (days)
@@ -387,17 +387,20 @@ def general_stat(issues):
 cfg = read_config('expendo.ini')
 client = TrackerClient(cfg['token'], cfg['org'])
 
+
 # simple select
-# ts = select(client, 'Project: "МТ SystemeSmart" AND Tags: fw')
+# ts = select(client, 'Project: "MT SystemeLogic(CCB)" AND Queue: MTHW')
+# ts = select(client, 'Queue: MTHW AND Tags: construction')
 
 # chained select
-ts = scan_select(client, ['MTPD-895', 'MTPD-761'], 'Tags: fw')
+ts = scan_select(client, ['MTPD-326'], 'Tags: fw')
 
 update_dates(cfg, ts)
 
-"""
+
 # =============== Velocity Report ====================
 
+"""
 table = PrettyTable()
 table.field_names = ['Date', 'Burned']
 for day in SPRINT_DAYS[-10:]:
@@ -410,19 +413,25 @@ print(table)
 
 # =============== Project Review Report ===============
 
+
 print(f'{len(ts)} issues found.')
 print(f'Today original estimate = {original(ts)} hrs.')
-#table = PrettyTable()
-#table.field_names = ['Date', 'Burned', 'Spent']
-#for day in SPRINT_DAYS:
-#    table.add_row([day, burned(ts, day), spent(ts, day)])
+print(f'Actual estimate = {estimate(ts)} hrs.')
+
+
+"""
+table = PrettyTable()
+table.field_names = ['Date', 'Original', 'Actual']
+for day in SPRINT_DAYS:
+    table.add_row([day, original(ts, day), estimate(ts, day)])
 #pyperclip.copy(table.get_csv_string())
-#table.align = 'r'
-#print(table)
+table.align = 'r'
+print(table)
 """
 
 # ======== Report for Retro =================
 
+"""
 matplotlib.use('TkAgg')
 
 general_stat(ts)
@@ -454,3 +463,4 @@ print('Close plot widget(s) to continue...')
 
 plt.show()
 """
+
