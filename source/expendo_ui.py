@@ -65,19 +65,43 @@ def save_config(filename, **kwargs):
         config.write(configfile)
 
 
+def _check_len_range(val):
+    i = int(val)
+    if i < 2 or i > 30:
+        raise argparse.ArgumentError('Sprint length expected 2 to 30 days.')
+    return i
+
+
 class ExpendoArgumentParser(argparse.ArgumentParser):
     def __init__(self):
         super(ExpendoArgumentParser, self).__init__(
             description='Expendo v.2.0 - Yandex Tracker stat crawler by VCh.',
             epilog='Tracker connection settings and params in "expendo.ini".')
-        self.add_argument('query', type=str,
-                          help='issues query')
+        self.add_argument('query', type=str, nargs='?', default=None,
+                          help='issues query, default last call query')
         self.add_argument('-m', '--mode', type=str, choices=['daily', 'sprint'],
                           help='time span mode')
-        self.add_argument('--length', type=int,
+        self.add_argument('--length', type=_check_len_range,
                           help='sprint length')
         self.add_argument('--base', type=lambda s: dt.datetime.strptime(s, '%d.%m.%y').date(),
-                          help='sprint base date')
+                          help='sprint base date [dd.mm.yy]')
+
+        self.add_argument('--period', type=str,
+                          choices=["custom", "week", "sprint", "month", "quarter", "year", "all"],
+                          help='data period')
+        self.add_argument('--from', type=lambda s: dt.datetime.strptime(s, '%d.%m.%y').date(),
+                          help='custom data period start date [dd.mm.yy]')
+
+        self.add_argument('--to', type=lambda s: dt.datetime.strptime(s, '%d.%m.%y').date(),
+                          help='data period final date [dd.mm.yy]')
+        self.add_argument('-f', '--freeze', default=False, action='store_true',
+                          help='freeze stored data period final date (not up today)')
+
+        self.add_argument('--token', type=str,
+                          help='Tracker access token')
+        self.add_argument('--org', type=str,
+                          help='Tracker organisation id')
+        
         self.add_argument('--debug', default=False, action='store_true',
                           help='logging in debug mode (include tracker and issues info)')
 
