@@ -11,7 +11,11 @@ import datetime
 import cmd
 from prettytable import PrettyTable
 import logging
+import unicodedata
 
+
+def normalize_text(text):
+    return unicodedata.normalize('NFC', text.strip().lower())
 
 # =======================================================================
 # Expendo-2 UI command system:
@@ -72,7 +76,7 @@ def save_config(filename, **kwargs):
 def _check_len_range(val):
     i = int(val)
     if i < 2 or i > 30:
-        raise ArgumentError('Sprint length expected 2 to 30 days.')
+        raise ArgumentError(argument=None, message='Sprint length expected 2 to 30 days.')
     return i
 
 
@@ -108,11 +112,6 @@ class ExpendoArgumentParser(argparse.ArgumentParser):
         self.add_argument('--debug', default=False, action='store_true',
                           help='logging in debug mode (include tracker and issues info)')
 
-
-def update_args(args, values):
-    pass
-
-
 # ---------------------------------------------------------
 #                      CLI commands parser
 # ---------------------------------------------------------
@@ -128,7 +127,6 @@ mode_tokens = ['daily', 'sprint']
 period_tokens = ['week', 'sprint', 'month', 'quarter', 'year', 'all', 'full']
 period_bound_tokens = ['to']
 local_period_tokens = ['at', 'to']
-match_tolerance = 0.8
 
 help_str = ("General control commands:\n"
             "  help, ?, h - this description\n"
@@ -158,6 +156,32 @@ class CommandError(BaseException):
     pass
 
 
+def get_ngrams(token, n=2):
+    """Генерация n-грамм для токена."""
+    return [token[i:i + n] for i in range(len(token) - n + 1)]
+
+
+def match(in_token, values, match_tolerance=0.5, n=2):
+    """Находит наиболее похожий токен в словаре с учётом n-грамм."""
+    token = normalize_text(in_token).lower()
+    token_ngrams = set(get_ngrams(token, n))
+    best_match = None
+    best_score = 0.0
+    for v in values:
+        v_ngrams = set(get_ngrams(v, n))
+        # Обработка коротких слов
+        if not token_ngrams and not v_ngrams:
+            score = 1.0 if token == v else 0.0
+        else:
+            intersection = token_ngrams & v_ngrams
+            union = token_ngrams | v_ngrams
+            score = len(intersection) / len(union) if union else 0.0
+        if score > best_score:
+            best_score = score
+            best_match = v
+    return best_match if best_score > match_tolerance else None
+
+
 class CmdParser:
 
     def __init__(self):
@@ -173,15 +197,8 @@ class CmdParser:
         self.p_length = 'month'
         self.p_from = None  # 'None' mean use p_length
         self.p_to = None  # 'None' mean up to 'today'
-        #=== handlers ===
-        self.h_help = None
-
-    @staticmethod
-    def match(token, values):
-        m = {v: len(set(token) & set(v)) / len(set(token) | set(v)) for v in values}  # jaccard distance
-        max_token = max(m, key=m.get)
-        # TODO: this realisation leads to cafe=face, need advance
-        return max_token if m[max_token] > match_tolerance else None
+        # === handlers ===
+        self.h_info = lambda: None
 
     def parse(self, command: str):
         self.tokens = shlex.split(command)
@@ -189,53 +206,55 @@ class CmdParser:
         if len(self.tokens) == 0:
             self.tokens.append('info')
         # check controls
-        if t := self.match(self.tokens[0], ctrl_tokens):
+        if t := match(self.tokens[0], ctrl_tokens):
             self.tokens.pop(0)
             if len(self.tokens):
                 raise CommandError(f"Command '{t}' don't need parameters.")
-            # TODO: controls handler t
             match t:
-                case 'help' | 'h' | '?': self.h_help()
-                case 'exit' | 'quit': sys.exit(0)
-
+                case 'help' | 'h' | '?':
+                    print(help_str)
+                case 'exit' | 'quit':
+                    sys.exit(0)
+                case 'info':
+                    self.h_info()
         # check global settings (multi settings allowed
-        while len(self.tokens) and self.match(self.tokens[0], set_tokens):
-            self.parse_set_token()  # call another method, should pop it't tokens
+        while len(self.tokens) and match(self.tokens[0], set_tokens):
+            self.parse_set_token()  # call another method, should pop its tokens
         data_required = False  # Flag user asks a new engine or new data processing
         # get engine
-        if len(self.tokens) and (t := self.match(self.tokens[0], engine_tokens)):
+        if len(self.tokens) and (t := match(self.tokens[0], engine_tokens)):
             self.engine = t
             data_required = True
             self.tokens.pop(0)
         # get data
-        if len(self.tokens) and (t := self.match(self.tokens[0], data_tokens)):
+        if len(self.tokens) and (t := match(self.tokens[0], data_tokens)):
             self.data = t
             data_required = True
             self.tokens.pop(0)
-        if len(self.tokens) and (t := self.match(self.tokens[0], dv_tokens)):
+        if len(self.tokens) and match(self.tokens[0], dv_tokens):
             self.dv = True
             data_required = True
             self.tokens.pop(0)
-        if len(self.tokens) and (t := self.match(self.tokens[0], filter_tokens)):
+        if len(self.tokens) and match(self.tokens[0], filter_tokens):
             data_required = True
             self.tokens.pop(0)
             self.parse_filter()
-        if len(self.tokens) and (t := self.match(self.tokens[0], local_period_tokens)):
+        if len(self.tokens) and match(self.tokens[0], local_period_tokens):
             data_required = True
-            self.parse_period()  # call another method, should pop it't tokens
+            self.parse_period()  # call another method, should pop its tokens
         if len(self.tokens):
-            raise CommandError(f"Can't understand '{', '.join(self.tokens)}'.")
+            raise CommandError(f"Can't understand '{' '.join(self.tokens)}'.")
         # TODO: not finished, here call handlers
 
     def parse_set_token(self):
-        t = self.match(self.tokens[0], set_tokens)
+        t = match(self.tokens[0], set_tokens)
         assert t is not None
         self.tokens.pop(0)
         if len(self.tokens) < 1:
             raise CommandError(f"Command '{t}' require more parameters.")
         match t:
             case 'mode':
-                if v := self.match(self.tokens.pop(0), mode_tokens):
+                if v := match(self.tokens.pop(0), mode_tokens):
                     self.mode = v
                 else:
                     raise CommandError(f"Mode value '{', '.join(mode_tokens)}' required.")
@@ -252,7 +271,7 @@ class CmdParser:
                 except ValueError as e:
                     raise CommandError from e
             case 'period':
-                self.parse_period()  # call another method, should pop it't tokens
+                self.parse_period()  # call another method, should pop its tokens
 
     def parse_period(self):
         pass
@@ -263,28 +282,34 @@ class CmdParser:
         index = next((i for i, t in enumerate(self.tokens) if t in local_period_tokens), len(self.tokens))
         if index == 0:
             raise CommandError('The "by" sentence requires list of actual categories.')
-        f = [self.match(self.cat_list, t) for t in self.tokens[:index]]  # check categories actual
+        f = [match(t, self.cat_list) for t in self.tokens[:index]]  # check categories actual
         self.filter = [i for i in f if i is not None]  # clear unknowns
         del self.tokens[:index]  # clear tokens to future processing
 
 
 # === Test ===
 
-def print_help():
-    print(help_str)
+from pprint import pprint
+
+
+def print_info():
+    print('info')
 
 
 def tst():
     p = CmdParser()
-    p.h_help = print_help
+    # Connect handlers
+    p.h_info = print_info
+    # Main command cycle
     while True:
         c = input('>')
         try:
             p.parse(c)
             print('Executed')
-            print(p.__dict__)
+            pprint(p.__dict__)
         except CommandError as e:
-            print(e)
+            print('Error:', e)
 
 
-tst()
+if __name__ == '__main__':
+    tst()
