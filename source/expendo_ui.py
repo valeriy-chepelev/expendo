@@ -124,9 +124,9 @@ data_tokens = ['estimate', 'spent', 'original', 'burn']
 dv_tokens = ['dv']
 filter_tokens = ['for']
 mode_tokens = ['daily', 'sprint']
-period_tokens = ['week', 'sprint', 'month', 'quarter', 'year', 'all', 'full']
-period_bound_tokens = ['to']
-local_period_tokens = ['at', 'to']
+period_tokens = ['today', 'now', 'yesterday', 'week', 'sprint', 'month', 'quarter', 'year', 'all', 'full']
+date_tokens = ['today', 'now', 'yesterday']
+period_bound_tokens = ['at', 'to']
 
 help_str = ("General control commands:\n"
             "  help, ?, h - this description\n"
@@ -136,9 +136,9 @@ help_str = ("General control commands:\n"
             "  mode sprint|daily - set time mode\n"
             "  length N - set sprint length (2 to 30 days)\n"
             "  base dd.mm.yy - set sprints base date\n"
-            "  period dd.mm.yy|week|sprint|month|quarter|year|all [to dd.mm.yy|today] -\n"
-            "    set analysis time range, from first date or with specified duration\n"
-            "    up 'to' specified date or 'today'\n"
+            "  period dd.mm.yy|today|week|sprint|month|quarter|year|all [to dd.mm.yy|today] -\n"
+            "    set analysis time range, from first date (or 'today') or with specified duration\n"
+            "    up 'to' specified date or 'today'; 'today' will be aligned at future runs\n"
             "Data commands:\n"
             "[exporter] [data] [dv] [for filter] [at|to period]\n"
             "  exporter: dump|plot|copy|csv - how to output, 'dump' is default\n"
@@ -161,7 +161,7 @@ def get_ngrams(token, n=2):
     return [token[i:i + n] for i in range(len(token) - n + 1)]
 
 
-def match(in_token, values, match_tolerance=0.5, n=2):
+def match_t(in_token, values, match_tolerance=0.5, n=2):
     """Находит наиболее похожий токен в словаре с учётом n-грамм."""
     token = normalize_text(in_token).lower()
     token_ngrams = set(get_ngrams(token, n))
@@ -185,6 +185,8 @@ def match(in_token, values, match_tolerance=0.5, n=2):
 class CmdParser:
 
     def __init__(self):
+        self.local_period = None
+        self.global_period = None
         self.filter = list()
         self.cat_list = list()
         self.dv = False
@@ -202,11 +204,13 @@ class CmdParser:
 
     def parse(self, command: str):
         self.tokens = shlex.split(command)
+        self.local_period = None
+        data_required = False  # Flag user asks a new engine or new data processing
         # empty command is 'info'
         if len(self.tokens) == 0:
             self.tokens.append('info')
         # check controls
-        if t := match(self.tokens[0], ctrl_tokens):
+        if t := match_t(self.tokens[0], ctrl_tokens):
             self.tokens.pop(0)
             if len(self.tokens):
                 raise CommandError(f"Command '{t}' don't need parameters.")
@@ -218,43 +222,42 @@ class CmdParser:
                 case 'info':
                     self.h_info()
         # check global settings (multi settings allowed
-        while len(self.tokens) and match(self.tokens[0], set_tokens):
+        while len(self.tokens) and match_t(self.tokens[0], set_tokens):
             self.parse_set_token()  # call another method, should pop its tokens
-        data_required = False  # Flag user asks a new engine or new data processing
         # get engine
-        if len(self.tokens) and (t := match(self.tokens[0], engine_tokens)):
+        if len(self.tokens) and (t := match_t(self.tokens[0], engine_tokens)):
             self.engine = t
             data_required = True
             self.tokens.pop(0)
         # get data
-        if len(self.tokens) and (t := match(self.tokens[0], data_tokens)):
+        if len(self.tokens) and (t := match_t(self.tokens[0], data_tokens)):
             self.data = t
             data_required = True
             self.tokens.pop(0)
-        if len(self.tokens) and match(self.tokens[0], dv_tokens):
+        if len(self.tokens) and match_t(self.tokens[0], dv_tokens):
             self.dv = True
             data_required = True
             self.tokens.pop(0)
-        if len(self.tokens) and match(self.tokens[0], filter_tokens):
+        if len(self.tokens) and match_t(self.tokens[0], filter_tokens):
             data_required = True
             self.tokens.pop(0)
             self.parse_filter()
-        if len(self.tokens) and match(self.tokens[0], local_period_tokens):
+        if len(self.tokens) and match_t(self.tokens[0], period_bound_tokens):
             data_required = True
-            self.parse_period()  # call another method, should pop its tokens
+            self.local_period = self.parse_period()  # call another method, should pop its tokens
         if len(self.tokens):
             raise CommandError(f"Can't understand '{' '.join(self.tokens)}'.")
         # TODO: not finished, here call handlers
 
     def parse_set_token(self):
-        t = match(self.tokens[0], set_tokens)
+        t = match_t(self.tokens[0], set_tokens)
         assert t is not None
         self.tokens.pop(0)
         if len(self.tokens) < 1:
             raise CommandError(f"Command '{t}' require more parameters.")
         match t:
             case 'mode':
-                if v := match(self.tokens.pop(0), mode_tokens):
+                if v := match_t(self.tokens.pop(0), mode_tokens):
                     self.mode = v
                 else:
                     raise CommandError(f"Mode value '{', '.join(mode_tokens)}' required.")
@@ -271,18 +274,42 @@ class CmdParser:
                 except ValueError as e:
                     raise CommandError from e
             case 'period':
-                self.parse_period()  # call another method, should pop its tokens
+                self.global_period = self.parse_period()  # call another method, should pop its tokens
 
     def parse_period(self):
-        pass
+        # we enter here with tokens 'period xxxx [to yyyy]' - global setting
+        # or 'at xxxx [to yyyy]' - local setting
+        # or 'to yyyy' - local setting
+        result = {'p': None, 'to': None}
+        while len(self.tokens) and (t := match_t(self.tokens.pop(0), set(period_bound_tokens) | {'period'})):
+            match t:
+                case 'period' | 'at':
+                    p_val = self.tokens.pop(0)
+                    if p := match_t(p_val, period_tokens):
+                        result['p'] = p
+                    else:
+                        try:
+                            result['p'] = dt.datetime.strptime(p_val, '%d.%m.%y').date()
+                        except ValueError as e:
+                            raise CommandError from e
+                case 'to':
+                    p_val = self.tokens.pop(0)
+                    if p := match_t(p_val, date_tokens):
+                        result['to'] = p
+                    else:
+                        try:
+                            result['to'] = dt.datetime.strptime(p_val, '%d.%m.%y').date()
+                        except ValueError as e:
+                            raise CommandError from e
+        return result
 
     def parse_filter(self):
         # The 'next' construction return index of 'at'/'to' token (finishes a filter list)
         # or len(tokens) if no 'at'/'to'.
-        index = next((i for i, t in enumerate(self.tokens) if t in local_period_tokens), len(self.tokens))
+        index = next((i for i, t in enumerate(self.tokens) if match_t(t, period_bound_tokens)), len(self.tokens))
         if index == 0:
             raise CommandError('The "by" sentence requires list of actual categories.')
-        f = [match(t, self.cat_list) for t in self.tokens[:index]]  # check categories actual
+        f = [match_t(t, self.cat_list) for t in self.tokens[:index]]  # check categories actual
         self.filter = [i for i in f if i is not None]  # clear unknowns
         del self.tokens[:index]  # clear tokens to future processing
 
@@ -300,6 +327,7 @@ def tst():
     p = CmdParser()
     # Connect handlers
     p.h_info = print_info
+    p.cat_list = ['mthw', 'mtfw', 'mtqa', 'some sheet']
     # Main command cycle
     while True:
         c = input('>')
@@ -308,7 +336,7 @@ def tst():
             print('Executed')
             pprint(p.__dict__)
         except CommandError as e:
-            print('Error:', e)
+            print('Error:', e.__cause__ if e.__cause__ else e)
 
 
 if __name__ == '__main__':
