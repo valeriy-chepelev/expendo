@@ -1,0 +1,31 @@
+all user options located in CmdParser
+CmdParser handlers connected to DataManager
+CmdParser call handlers with Self as argument:
+h_info
+h_recalc
+DataManager contain extracted data
+
+CmdParser ---h_info--> DataManager.get_info(kwargs) -> str
+          +--h_recalc---> DataManager.recalc(kwargs)
+          +--h_cats----> DataManager.get_categories(kwargs) -> list
+
+CmdParser ---h_export----> main.export(kwargs) ---> Exporter.dump(DataManager.get_data(kwargs), kwargs)
+                                               +--> Exporter.plot(DataManager.get_data(kwargs), kwargs)
+                                               +--> Exporter.copy(DataManager.get_data(kwargs), kwargs)
+                                               +--> Exporter.csv(DataManager.get_data(kwargs), kwargs)
+
+boot-up sequence:
+init argparser
+init logging
+read ini-file
+arguments from ini-file transfer to CmdParser
+arguments from argparser transfer to CmdParser with override
+init DataManager
+init Exporter
+handlers connection
+init and check Tracker connection
+recalc DataManager
+call h_info
+main cmd cycle
+finally save ini
+

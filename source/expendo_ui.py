@@ -17,6 +17,7 @@ import unicodedata
 def normalize_text(text):
     return unicodedata.normalize('NFC', text.strip().lower())
 
+
 # =======================================================================
 # Expendo-2 UI command system:
 # combine of argument parser to select issues and define parameters
@@ -112,6 +113,7 @@ class ExpendoArgumentParser(argparse.ArgumentParser):
         self.add_argument('--debug', default=False, action='store_true',
                           help='logging in debug mode (include tracker and issues info)')
 
+
 # ---------------------------------------------------------
 #                      CLI commands parser
 # ---------------------------------------------------------
@@ -157,19 +159,19 @@ class CommandError(BaseException):
 
 
 def get_ngrams(token, n=2):
-    """Генерация n-грамм для токена."""
+    """Generate token n-grams"""
     return [token[i:i + n] for i in range(len(token) - n + 1)]
 
 
 def match_t(in_token, values, match_tolerance=0.5, n=2):
-    """Находит наиболее похожий токен в словаре с учётом n-грамм."""
+    """Finds best match token in values, using n-grams"""
     token = normalize_text(in_token).lower()
     token_ngrams = set(get_ngrams(token, n))
     best_match = None
     best_score = 0.0
     for v in values:
         v_ngrams = set(get_ngrams(v, n))
-        # Обработка коротких слов
+        # Short words processing
         if not token_ngrams and not v_ngrams:
             score = 1.0 if token == v else 0.0
         else:
@@ -188,7 +190,6 @@ class CmdParser:
         self.local_period = None
         self.global_period = None
         self.filter = list()
-        self.cat_list = list()
         self.dv = False
         self.base = None
         self.length = None
@@ -196,15 +197,20 @@ class CmdParser:
         self.data = 'estimate'
         self.engine = 'dump'
         self.tokens = None
-        self.p_length = 'month'
-        self.p_from = None  # 'None' mean use p_length
-        self.p_to = None  # 'None' mean up to 'today'
+
         # === handlers ===
-        self.h_info = lambda: None
+        self.h_info = lambda *args, **kwargs: ''  # common info getter handler, func()
+        self.h_recalc = lambda *args, **kwargs: None  # data recalculate handler
+        self.h_export = lambda *args, **kwargs: None  # data export handler
+        self.h_cats = lambda *args, **kwargs: list()  # category list getter handler
 
     def parse(self, command: str):
-        self.tokens = shlex.split(command)
+        sh = shlex.shlex(command)
+        sh.whitespace += ','
+        self.tokens = [s.replace('"', '') for s in list(sh)]
+        # reset local memory
         self.local_period = None
+        self.dv = False
         data_required = False  # Flag user asks a new engine or new data processing
         # empty command is 'info'
         if len(self.tokens) == 0:
@@ -220,7 +226,14 @@ class CmdParser:
                 case 'exit' | 'quit':
                     sys.exit(0)
                 case 'info':
-                    self.h_info()
+                    print(self.h_info(local_period=self.local_period,
+                                      global_period=self.global_period,
+                                      base=self.base,
+                                      length=self.length,
+                                      filter=self.filter,
+                                      mode=self.mode,
+                                      data=self.data,
+                                      engine=self.engine))
         # check global settings (multi settings allowed
         while len(self.tokens) and match_t(self.tokens[0], set_tokens):
             self.parse_set_token()  # call another method, should pop its tokens
@@ -247,7 +260,10 @@ class CmdParser:
             self.local_period = self.parse_period()  # call another method, should pop its tokens
         if len(self.tokens):
             raise CommandError(f"Can't understand '{' '.join(self.tokens)}'.")
-        # TODO: not finished, here call handlers
+        # here call handlers
+        if data_required:
+            self.h_recalc()
+        self.h_export(engine=self.engine)
 
     def parse_set_token(self):
         t = match_t(self.tokens[0], set_tokens)
@@ -309,35 +325,15 @@ class CmdParser:
         index = next((i for i, t in enumerate(self.tokens) if match_t(t, period_bound_tokens)), len(self.tokens))
         if index == 0:
             raise CommandError('The "by" sentence requires list of actual categories.')
-        f = [match_t(t, self.cat_list) for t in self.tokens[:index]]  # check categories actual
+        cat_list = self.h_cats(local_period=self.local_period,
+                               global_period=self.global_period,
+                               base=self.base,
+                               length=self.length,
+                               filter=self.filter,
+                               mode=self.mode,
+                               data=self.data,
+                               engine=self.engine)
+        f = [match_t(t, cat_list) for t in self.tokens[:index]]  # check categories actual
         self.filter = [i for i in f if i is not None]  # clear unknowns
         del self.tokens[:index]  # clear tokens to future processing
 
-
-# === Test ===
-
-from pprint import pprint
-
-
-def print_info():
-    print('info')
-
-
-def tst():
-    p = CmdParser()
-    # Connect handlers
-    p.h_info = print_info
-    p.cat_list = ['mthw', 'mtfw', 'mtqa', 'some sheet']
-    # Main command cycle
-    while True:
-        c = input('>')
-        try:
-            p.parse(c)
-            print('Executed')
-            pprint(p.__dict__)
-        except CommandError as e:
-            print('Error:', e.__cause__ if e.__cause__ else e)
-
-
-if __name__ == '__main__':
-    tst()
