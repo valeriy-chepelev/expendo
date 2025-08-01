@@ -2,11 +2,7 @@ import sys
 import logging
 from expendo_ui import ExpendoArgumentParser, CmdParser, CommandError
 from expendo_ui import read_config, save_config
-
-
-class DataManager:  # TODO: DataManager Class, here is placeholder stub
-    def __init__(self, *args):
-        pass
+from data_engine import DataManager
 
 
 data_manager = DataManager()
@@ -38,6 +34,9 @@ def main():
     # Connect handlers
     # TODO: parser handlers
     cmd_parser.h_export = export_handler
+    cmd_parser.h_recalc = data_manager.recalc
+    cmd_parser.h_cats = data_manager.get_categories
+    cmd_parser.h_info = data_manager.get_info
     # Main command cycle
     while True:
         c = input('>')
