@@ -14,6 +14,7 @@ from prettytable import PrettyTable
 _future_date = dt.datetime.now(dt.timezone.utc) + relativedelta(years=3)
 TODAY = dt.datetime.now(dt.timezone.utc).date()  # Today, actually
 
+
 # ===================================================
 #             Data Access Procedures
 # ===================================================
@@ -101,6 +102,17 @@ def _components(issue):
     """ Return one issue components """
     return [comp.name for comp in issue.components]
 
+
+def get_start_date(issues: list):
+    """ Return start date (first estimation date) of issues """
+    try:
+        d = min([t[-1]['date'] for issue in issues
+                 if len(t := issue_times(issue))])
+    except ValueError:
+        d = dt.datetime.now(dt.timezone.utc)
+    return d
+
+
 # ===================================================
 #             Data Processing Procedures
 # ===================================================
@@ -155,57 +167,90 @@ def burned(issues, date):
                 if (e := issue_original(issue)).valuable and e.finished and (e.end <= date)])
 
 
+def _calculator(data_kind, issues, date):
+    _estimate_ = estimate
+    _spent_ = spent
+    _original_ = original
+    _burn_ = burned
+    f = locals()[f'_{data_kind}_']
+    assert callable(f)
+    return f(issues, date)
+
+
 # ===================================================
 #             Data Manager Class
 # ===================================================
 
 def _match(category):
     """Function fabric - return issue match function"""
+
     def test(*args):
         return f'Test: {list(args)}'
-    def type(issue, val):
+
+    def issue_type(issue, val):
         return issue.type.key == val
+
     def tag(issue, val):
         return val in _tags(issue)
+
     def component(issue, val):
         return val in _components(issue)
+
     def queue(issue, val):
         return val == _queue(issue)
 
     # TODO: add projects and epics matchers
+
     assert category in locals()
-    return locals()[category]
+    f = locals()[category]
+    assert callable(f)
+    return f
 
 
 class DataManager:
-    def __init__(self, query, issues):
+    def __init__(self, issues):
         super(DataManager, self).__init__()
-        self._period_str = ''
-        self.query = query
-        self.issues = issues
+        # static data
+        self.issues = issues  # issues list
+        self._stat = ''  # statistical data string
+        self._start_date = TODAY
+        # categories
         self.tags = []
         self.queues = []
-        self.stat = ''
+        self.components = []
+        # dynamic data
+        self._dates = []
+        self._data = dict()
+        # updates
         self._update_stat()
         self._update_categories()
+        self._start_date = get_start_date(self.issues).date()
 
-    def _filter(self, category, value=None):
+    def _filter(self, category, value, issues=None):
         matcher = _match(category)
-        return [t for t in self.issues if matcher(t, value)]
+        income = self.issues if issues is None else issues
+        return [t for t in income if matcher(t, value)]
+
+    def _auto_filter(self, value):
+        # TODO: make join of filtered issues
+        if value in self.tags:
+            return 'Tag', self._filter('tag', value)
+        elif value in self.components:
+            return 'Component', self._filter('component', value)
+        elif value in self.queues:
+            return 'Queue', self._filter('queue', value)
+        # TODO: add projects and epics
+        return '', []
 
     def _update_categories(self):
+        # collect categories info, called ones from constructor
         self.tags = list({tag for t in self.issues for tag in _tags(t)})
         self.queues = list({_queue(t) for t in self.issues})
         self.components = list({component for t in self.issues for component in _components(t)})
         # TODO: add projects and epics
 
-    def recalc(self, **kwargs):
-        self._update_period(local_p=kwargs.get('local_period'),
-                            global_p=kwargs.get('global_period'))
-        # TODO: updates and calculations of data rows
-        pass
-
     def _update_stat(self):
+        # calculate common statistic data, called ones from constructor
         def row(title, issues):
             return [title, len(issues),
                     len([1 for s in issues if s.resolution is None]),
@@ -213,38 +258,111 @@ class DataManager:
                     spent(issues, TODAY),
                     original(issues, TODAY),
                     burned(issues, TODAY)]
+
         tbl = PrettyTable()
         tbl.field_names = ['Type', 'Count', 'Open', 'Estimate', 'Spent', 'Original', 'Burned']
-        tbl.add_row(row('Tasks', self._filter('type', 'task')))
-        tbl.add_row(row('Bugs', self._filter('type', 'bug')))
-        tbl.add_row(row('Total', self.issues()))
+        tbl.add_row(row('Tasks', self._filter('issue_type', 'task')))
+        tbl.add_row(row('Bugs', self._filter('issue_type', 'bug')))
+        tbl.add_row(row('Total', self.issues))
         tbl.align = 'r'
-        self.stat = tbl.get_string()
+        self._stat = tbl.get_string()
 
-    def _update_period(self, local_p, global_p):
-        """
-        Update internal dates and info string of period
-        :param local_p: dict(p, to) or None with local period settings
-        :param global_p: dict(p, to) with global period settings
-        """
-        p = global_p if local_p is None else local_p
-        # TODO: decode period
+    @property
+    def categories(self):
+        return list(set(self.tags) | set(self.queues) | set(self.components))
+        # TODO: add projects and epics
 
-    def get_info(self, **kwargs):
-        mode = 'Daily' if kwargs.get('mode', 'daily') == 'daily'\
-            else f'Sprint ({kwargs.get("length")} days based {kwargs.get("base").strftime("%d.%m.%y")})'
+    @property
+    def categories_info(self):
+        return '\n'.join(['Categories:',
+                          f'- Queues: {", ".join(self.queues)}',
+                          f'- Tags: {", ".join(self.tags)}',
+                          f'- Components: {", ".join(self.components)}'])
+        # TODO: add projects and epics
+
+    @property
+    def stat_info(self):
+        return self._stat
+
+    def update_period(self, p_start, p_end, length=1, base=TODAY):
+        """
+        Update internal dates
+        """
+        match p_end:
+            case 'today', 'now':
+                end_date = TODAY
+            case 'yesterday':
+                end_date = TODAY - dt.timedelta(days=1)
+            case _:
+                end_date = dt.datetime.strptime(p_end, '%d.%m.%y').date()
+        match p_start:
+            case 'today', 'now':
+                start_date = min(TODAY, end_date)
+            case 'yesterday':
+                start_date = min(TODAY - dt.timedelta(days=1), end_date)
+            case 'week':
+                start_date = end_date - dt.timedelta(weeks=1)
+            case 'sprint':
+                start_date = end_date - dt.timedelta(days=length)
+            case 'month':
+                start_date = end_date - relativedelta(months=1)
+            case 'quarter':
+                start_date = end_date - relativedelta(months=3)
+            case 'year':
+                start_date = end_date - relativedelta(years=1)
+            case 'all', 'full':
+                start_date = min(self._start_date, end_date)
+            case _:
+                start_date = min(dt.datetime.strptime(p_start, '%d.%m.%y').date(),
+                                 end_date)
+
+        # align dates to sprint
+        end_date -= dt.timedelta(days=abs((end_date - base).days) % length)
+        start_date -= dt.timedelta(days=length - abs((start_date - base).days) % length)
+
+        # gen dates
+        self._dates = []
+        while not start_date > end_date:
+            self._dates.append(start_date)
+            start_date += dt.timedelta(days=length)
+
+    @property
+    def data(self):
+        return self._data
+
+    # ====================================================================================
+    #              ^ fixed   |   v not fixed
+    # ====================================================================================
+
+    def recalc(self, data_kind, dv, categories):
+        # TODO: updates and calculations of data rows
+        self._data = dict()
+        # calculation
+        for cat in categories:
+            key, issues = self._auto_filter(cat)
+            key += f': {cat}'
+            self._data.update({key: [_calculator(data_kind, issues, date) for date in self._dates]})
+        # diff
+        if dv:
+            for key, values in self._data.items():
+                for i in range(len(values) - 1, 0, -1):  # start:stop:step, use reverse order
+                    values[i] -= values[i - 1]
+                values[0] = 0
+        # additional data
+        self._data.update({'__date': self._dates,
+                           '__kind': data_kind,
+                           '__unit': 'hrs/dt' if dv else 'hrs'})
+
+    """
+    def get_info(self, mode: str, length: int, base, period_str):
+        mode_str = 'Daily' if mode == 'daily'\
+            else f'Sprint ({length} days based {base.strftime("%d.%m.%y")})'
         # TODO: add projects and epics
         return '\n'.join([self.query, self.stat,
-                          f'Settings: {mode} for {self._period_str}',
+                          f'Settings: {mode_str} for {period_str}',
                           'Categories:',
                           f'- Queues: {", ".join(self.queues)}',
                           f'- Tags: {", ".join(self.tags)}',
                           f'- Components: {", ".join(self.components)}',
                           'Enter ? to commands list (i.e. "plot estimate"), CR to this stat, or Q to quit.'])
-
-    def get_categories(self):
-        return list(set(self.tags) | set(self.queues) | set(self.components))
-        # TODO: add projects and epics
-
-    def get_data(self):
-        pass  # TODO: return data rows
+    """
