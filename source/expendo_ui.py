@@ -187,8 +187,11 @@ def match_t(in_token, values, match_tolerance=0.5, n=2):
 class CmdParser:
 
     def __init__(self):
+        self.org = ''
+        self.token = ''
         self.local_period = None
-        self.global_period = None
+        self.global_period = {'p': 'today', 'to': 'today'}
+
         self.filter = list()
         self.dv = False
         self.base = None
@@ -199,10 +202,16 @@ class CmdParser:
         self.tokens = None
 
         # === handlers ===
-        self.h_info = lambda *args, **kwargs: ''  # common info getter handler, func()
-        self.h_recalc = lambda *args, **kwargs: None  # data recalculate handler
-        self.h_export = lambda *args, **kwargs: None  # data export handler
-        self.h_cats = lambda *args, **kwargs: list()  # category list getter handler
+        self.h_period = lambda *args, **kwargs: None  # period change handler, func(start, end, len, base)
+        self.h_recalc = lambda *args, **kwargs: None  # data recalculate handler, func(datakind, dv, categories)
+        self.h_export = lambda *args, **kwargs: None  # data export handler, func(engine)
+        self.h_cats = lambda *args, **kwargs: list()  # category list getter handler, func()
+        self.h_cats_str = lambda *args, **kwargs: ''  # categories string info getter handler, func()
+        self.h_stat_info = lambda *args, **kwargs: ''  # stat info getter handler, func()
+
+    def get_options(self):
+        """Return options as dict"""
+        return dict()
 
     def parse(self, command: str):
         sh = shlex.shlex(command)
@@ -296,7 +305,7 @@ class CmdParser:
         # we enter here with tokens 'period xxxx [to yyyy]' - global setting
         # or 'at xxxx [to yyyy]' - local setting
         # or 'to yyyy' - local setting
-        result = {'p': None, 'to': None}
+        result = self.global_period
         while len(self.tokens) and (t := match_t(self.tokens.pop(0), set(period_bound_tokens) | {'period'})):
             match t:
                 case 'period' | 'at':
@@ -318,6 +327,9 @@ class CmdParser:
                         except ValueError as e:
                             raise CommandError from e
         return result
+
+    def calc_dates(self):
+        pass
 
     def parse_filter(self):
         # The 'next' construction return index of 'at'/'to' token (finishes a filter list)
