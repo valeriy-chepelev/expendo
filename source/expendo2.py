@@ -4,21 +4,19 @@ from expendo_ui import ExpendoArgumentParser, CmdParser, CommandError
 from expendo_ui import read_config, save_config
 from data_engine import DataManager
 from yandex_tracker_client import TrackerClient
-from yandex_tracker_client.exceptions import NotFound, BadRequest
 
 
 def export_data(engine, data):
     # TODO: exporter
     match engine:
         case 'dump':
-            pass
-            # dump(data)
+            print(f"Dumping {data['__kind']}.")
         case 'plot':
-            pass
+            print(f"Plotting {data['__kind']}.")
         case 'copy':
-            pass
+            print(f"Copied {data['__kind']}.")
         case 'csv':
-            pass
+            print(f"CSVed {data['__kind']}.")
 
 
 def main():
@@ -39,10 +37,6 @@ def main():
     def stat_info_handler():
         nonlocal data_manager
         return data_manager.stat_info
-
-    def query_info_handler():
-        nonlocal cl_args
-        return cl_args.query
 
     # Init and parse cl arguments
 
@@ -72,20 +66,24 @@ def main():
     cmd_parser = CmdParser()
 
     # Boot options from ini
-    # TODO: ini args to parser
+
+    cmd_parser.options.set_values(**ini_args)
 
     # Boot options from cl args
-    # TODO: cl args to parser
+
+    cmd_parser.options.set_values(**cl_args.__dict__)
 
     # Crate and check Tracker client connection
 
-    client = TrackerClient(cmd_parser.token, cmd_parser.org)
+    client = TrackerClient(cmd_parser.options.token, cmd_parser.options.org)
     if client.myself is None:
         raise Exception('Unable to connect Yandex Tracker.')
 
     # Get Tracker issues
 
-    issues = None  # TODO: issues selector
+    if cmd_parser.options.query == '':
+        raise Exception('Empty issues query.')
+    issues = list(client.issues.find(query=cmd_parser.options.query))
 
     # -------------------------------------
     # Init Data Manager
@@ -101,25 +99,22 @@ def main():
     cmd_parser.h_cats_str = cat_string_handler
     cmd_parser.h_export = export_handler
     cmd_parser.h_stat_info = stat_info_handler
-    cmd_parser.h_query_str = query_info_handler
-
-    # Show info
-
-    pass  # TODO: print info
 
     # -------------------------------------
     # Main command cycle
     # -------------------------------------
 
     try:
+        c = ''  # Show info as first
         while True:
-            c = input('>')
             try:
                 cmd_parser.parse(c)
+                c = input('>')
             except CommandError as err:
+                c = '?'  # Show help if error
                 print('Error:', err.__cause__ if err.__cause__ else err)
     finally:
-        save_config('expendo2.ini', **cmd_parser.get_options())
+        save_config('expendo2.ini', **cmd_parser.options.get_values_str())
 
     # ---------------end-------------------
 

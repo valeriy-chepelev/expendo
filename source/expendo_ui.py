@@ -1,15 +1,11 @@
 import datetime as dt
 import sys
 
-from dateutil.rrule import rrule, DAILY
-from dateutil.relativedelta import relativedelta
 import configparser
 import argparse
 from argparse import ArgumentError
 import shlex
-import datetime
-import cmd
-from prettytable import PrettyTable
+
 import logging
 import unicodedata
 import builtins
@@ -97,16 +93,13 @@ class ExpendoArgumentParser(argparse.ArgumentParser):
         self.add_argument('--base', type=lambda s: dt.datetime.strptime(s, '%d.%m.%y').date(),
                           help='sprint base date [dd.mm.yy]')
 
-        self.add_argument('--period', type=str,
-                          choices=["custom", "week", "sprint", "month", "quarter", "year", "all"],
+        self.add_argument('--period', type=str, metavar='p_from',
+                          choices=["week", "sprint", "month", "quarter", "year", "all"],
                           help='data period')
-        self.add_argument('--from', type=lambda s: dt.datetime.strptime(s, '%d.%m.%y').date(),
-                          help='custom data period start date [dd.mm.yy]')
 
-        self.add_argument('--to', type=lambda s: dt.datetime.strptime(s, '%d.%m.%y').date(),
+        self.add_argument('--to', metavar='p_to',
+                          type=lambda s: dt.datetime.strptime(s, '%d.%m.%y').date(),
                           help='data period final date [dd.mm.yy]')
-        self.add_argument('-f', '--freeze', default=False, action='store_true',
-                          help='freeze stored data period final date (not up today)')
 
         self.add_argument('--token', type=str,
                           help='Tracker access token')
@@ -190,10 +183,11 @@ def match_t(in_token, values, match_tolerance=0.5, n=2):
 
 
 class OptionsManager:
-    _names = ['org', 'token', 'base', 'length', 'mode', 'p_from', 'p_to']
+    _names = ['query', 'org', 'token', 'base', 'length', 'mode', 'p_from', 'p_to']
 
     def __init__(self):
         # RO values
+        self._query = ''
         self._org = ''
         self._token = ''
         # RW values
@@ -203,6 +197,10 @@ class OptionsManager:
         self._p_from = 'today'
         self._p_to = 'today'
         self._changed_flag = False
+
+    @property
+    def query(self):
+        return self._org
 
     @property
     def org(self):
@@ -303,12 +301,13 @@ class OptionsManager:
 
     def set_values(self, **kwargs):
         for name in self._names:
-            if name in kwargs and getattr(self, name) != kwargs[name]:
+            if name in kwargs and getattr(self, name) != kwargs[name] and kwargs[name] is not None:
                 setattr(self, name, kwargs[name])
                 self._changed_flag = True
 
     def get_values_str(self) -> dict:
-        return {'org': self._org,
+        return {'query': self._query,
+                'org': self._org,
                 'token': self._token,
                 'base': self._base.strftime('%d.%m.%y'),
                 'length': str(self._length),
@@ -350,7 +349,6 @@ class CmdParser:
         self.h_cats = lambda *args, **kwargs: list()  # category list getter handler, func()
         self.h_cats_str = lambda *args, **kwargs: ''  # categories string info getter handler, func()
         self.h_stat_info = lambda *args, **kwargs: ''  # stat info getter handler, func()
-        self.h_query_str = lambda *args, **kwargs: ''  # query string getter handler, func()
 
     def parse(self, command: str):
         sh = shlex.shlex(command)
@@ -370,7 +368,7 @@ class CmdParser:
                 case 'exit' | 'quit':
                     sys.exit(0)
                 case 'info':
-                    print('\n'.join([self.h_query_str(),
+                    print('\n'.join([self.options.query,
                                      self.h_stat_info(),
                                      self.options.get_settings_str(),
                                      self.h_cats_str(),
@@ -483,4 +481,3 @@ class CmdParser:
         # TODO: info user about non-actual categories
         del self.tokens[:index]  # clear tokens to future processing
         return sorted([i for i in f if i is not None])
-
