@@ -40,6 +40,10 @@ def main():
         nonlocal data_manager
         return data_manager.stat_info
 
+    def query_info_handler():
+        nonlocal cl_args
+        return cl_args.query
+
     # Init and parse cl arguments
 
     cl_args = ExpendoArgumentParser().parse_args()
@@ -97,6 +101,7 @@ def main():
     cmd_parser.h_cats_str = cat_string_handler
     cmd_parser.h_export = export_handler
     cmd_parser.h_stat_info = stat_info_handler
+    cmd_parser.h_query_str = query_info_handler
 
     # Show info
 

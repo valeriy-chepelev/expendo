@@ -335,7 +335,6 @@ class DataManager:
     # ====================================================================================
 
     def recalc(self, data_kind, dv, categories):
-        # TODO: updates and calculations of data rows
         self._data = dict()
         # calculation
         for cat in categories:
@@ -352,17 +351,3 @@ class DataManager:
         self._data.update({'__date': self._dates,
                            '__kind': data_kind,
                            '__unit': 'hrs/dt' if dv else 'hrs'})
-
-    """
-    def get_info(self, mode: str, length: int, base, period_str):
-        mode_str = 'Daily' if mode == 'daily'\
-            else f'Sprint ({length} days based {base.strftime("%d.%m.%y")})'
-        # TODO: add projects and epics
-        return '\n'.join([self.query, self.stat,
-                          f'Settings: {mode_str} for {period_str}',
-                          'Categories:',
-                          f'- Queues: {", ".join(self.queues)}',
-                          f'- Tags: {", ".join(self.tags)}',
-                          f'- Components: {", ".join(self.components)}',
-                          'Enter ? to commands list (i.e. "plot estimate"), CR to this stat, or Q to quit.'])
-    """
