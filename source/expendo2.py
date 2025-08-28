@@ -5,7 +5,7 @@ from expendo_ui import read_config, save_config
 from data_engine import DataManager, issue_times
 from yandex_tracker_client import TrackerClient
 from alive_progress import alive_bar
-from exporters import dump
+from exporters import dump, plot
 
 
 def export_data(engine, data):
@@ -14,7 +14,7 @@ def export_data(engine, data):
         case 'dump':
             dump(data)
         case 'plot':
-            print(f"Plotting {data['__kind']}.")
+            plot(data)
         case 'copy':
             print(f"Copied {data['__kind']}.")
         case 'csv':

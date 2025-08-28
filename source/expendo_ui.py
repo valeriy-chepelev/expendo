@@ -111,7 +111,7 @@ class ExpendoArgumentParser(argparse.ArgumentParser):
 
 
 set_tokens = ['mode', 'length', 'base', 'period']
-ctrl_tokens = ['info', 'help', '?', 'h', 'quit', 'exit', 'q', 'fortheemperor']
+ctrl_tokens = ['info', 'help', '?', 'h', 'quit', 'exit', 'q', 'fortheemperor', 'clear']
 engine_tokens = ['dump', 'plot', 'copy', 'csv']
 data_tokens = ['estimate', 'spent', 'original', 'burn']
 dv_tokens = ['dv']
@@ -381,13 +381,18 @@ class CmdParser:
                 case 'exit' | 'quit' | 'q':
                     sys.exit(0)
                 case 'info':
+                    f_info = ', '.join(self.filter)
                     print('\n'.join([self.options.query,
                                      self.h_stat_info(),
                                      self.options.get_settings_str(),
+                                     'Categories' + (f' (selected {f_info}):' if len(f_info) else ':'),
                                      self.h_cats_str(),
                                      info_prompt]))
                 case 'fortheemperor':
                     print(info_prompt)
+                case 'clear':
+                    self.filter = []
+                    self.recalc_flag = True
             return
         # check global settings (multi settings allowed)
         sets_flag = False
@@ -404,15 +409,17 @@ class CmdParser:
                 self.data = t
                 self.recalc_flag = True
             self.tokens.pop(0)
+        # check dv
         if new_dv := (len(self.tokens) > 0 and match_t(self.tokens[0], dv_tokens) is not None):
             self.tokens.pop(0)
         if self.dv != new_dv:
             self.dv = new_dv
             self.recalc_flag = True
+        # check categories
         if len(self.tokens) and match_t(self.tokens[0], filter_tokens):
             self.tokens.pop(0)
             new_filter = self.parse_filter()
-            if self.filter != new_filter:
+            if self.filter != new_filter and len(new_filter):
                 self.filter = new_filter
                 self.recalc_flag = True
 

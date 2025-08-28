@@ -301,7 +301,7 @@ class DataManager:
 
     @property
     def categories_info(self):
-        info = f'Categories:\n- Queues: {", ".join(self.queues)}'
+        info = f'- Queues: {", ".join(self.queues)}'
         if len(self.tags):
             info += f'\n- Tags: {", ".join(self.tags)}'
         if len(self.components):
@@ -360,10 +360,6 @@ class DataManager:
     def data(self):
         return self._data
 
-    # ====================================================================================
-    #              ^ fixed   |   v not fixed
-    # ====================================================================================
-
     def recalc(self, data_kind, dv, categories):
         self._data = dict()
         # calculation
@@ -372,7 +368,8 @@ class DataManager:
             key += f': {cat}'
             self._data.update({key: [_calculator(data_kind, issues, date) for date in self._dates]})
         # total
-        self._data.update({'TOTAL': [_calculator(data_kind, self.issues, date) for date in self._dates]})
+        if len(categories) == 0:
+            self._data.update({'TOTAL': [_calculator(data_kind, self.issues, date) for date in self._dates]})
         # diff
         if dv:
             for key, values in self._data.items():
