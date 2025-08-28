@@ -12,7 +12,7 @@ import builtins
 
 
 def normalize_text(text):
-    return unicodedata.normalize('NFC', text.strip().lower())
+    return unicodedata.normalize('NFC', text.strip())
 
 
 # =======================================================================
@@ -111,7 +111,7 @@ class ExpendoArgumentParser(argparse.ArgumentParser):
 
 
 set_tokens = ['mode', 'length', 'base', 'period']
-ctrl_tokens = ['info', 'help', '?', 'h', 'quit', 'exit', 'q', '__?']
+ctrl_tokens = ['info', 'help', '?', 'h', 'quit', 'exit', 'q', 'fortheemperor']
 engine_tokens = ['dump', 'plot', 'copy', 'csv']
 data_tokens = ['estimate', 'spent', 'original', 'burn']
 dv_tokens = ['dv']
@@ -145,7 +145,7 @@ help_str = ("General control commands:\n"
             "  plot estimate for techdebt at all - show's graph of summary estimate\n"
             "    for category 'techdebt' at all project(s) duration up to today.\n")
 
-info_prompt = "Enter ? to commands list (i.e. 'plot estimate'), CR to this stat, or Q to quit."
+info_prompt = "Enter ? to commands list (i.e. 'plot estimate'), CR to statistic, or Q to quit."
 
 
 class CommandError(BaseException):
@@ -159,12 +159,13 @@ def get_ngrams(token, n=2):
 
 def match_t(in_token, values, match_tolerance=0.5, n=2):
     """Finds best match token in values, using n-grams"""
-    token = normalize_text(in_token).lower()
+    token = normalize_text(in_token)
     token_ngrams = set(get_ngrams(token, n))
     best_match = None
     best_score = 0.0
     for v in values:
-        v_ngrams = set(get_ngrams(v, n))
+        v = normalize_text(v)
+        v_ngrams = set(get_ngrams(v, n))  # TODO: add lowered ngrams to additional case-insensitive match with penalty
         # Short words processing
         if not token_ngrams and not v_ngrams:
             score = 1.0 if token == v else 0.0
@@ -338,7 +339,7 @@ class OptionsManager:
         if self._mode == "sprint":
             sprint = f" ({self._length} days based {self._base.strftime('%d.%m.%y')})"
         return f"Settings: {self._mode.capitalize()}" \
-               f"{sprint} for {self._p_from} to {self._p_to}"
+               f"{sprint} at {self._p_from} to {self._p_to}"
 
 
 class CmdParser:
@@ -385,7 +386,7 @@ class CmdParser:
                                      self.options.get_settings_str(),
                                      self.h_cats_str(),
                                      info_prompt]))
-                case '__?':
+                case 'fortheemperor':
                     print(info_prompt)
             return
         # check global settings (multi settings allowed)
@@ -496,9 +497,12 @@ class CmdParser:
         # or len(tokens) if no 'at'/'to'.
         index = next((i for i, t in enumerate(self.tokens) if match_t(t, period_bound_tokens)), len(self.tokens))
         if index == 0:
-            raise CommandError('The "by" sentence requires list of actual categories.')
+            raise CommandError('The "by" sentence requires list of categories.')
         cat_list = self.h_cats()
-        f = [match_t(t, cat_list) for t in self.tokens[:index]]  # check categories actual
-        # TODO: info user about non-actual categories
-        del self.tokens[:index]  # clear tokens to future processing
-        return sorted([i for i in f if i is not None])
+        r = set()
+        for i in range(index):
+            if v := match_t(t := self.tokens.pop(0), cat_list):
+                r.add(v)
+            else:
+                print(f'Warning: "{t}" is not a category.')
+        return sorted(list(r))

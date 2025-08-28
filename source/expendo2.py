@@ -5,13 +5,14 @@ from expendo_ui import read_config, save_config
 from data_engine import DataManager, issue_times
 from yandex_tracker_client import TrackerClient
 from alive_progress import alive_bar
+from exporters import dump
 
 
 def export_data(engine, data):
     # TODO: exporter
     match engine:
         case 'dump':
-            print(f"Dumping {data['__kind']}.")
+            dump(data)
         case 'plot':
             print(f"Plotting {data['__kind']}.")
         case 'copy':
@@ -122,7 +123,7 @@ def main():
                 cmd_parser.parse(c)
                 c = input('>')
             except CommandError as err:
-                c = '__?'  # Show prompt if error
+                c = 'fortheemperor'  # Show prompt if error
                 print('Error:', err.__cause__ if err.__cause__ else err)
     finally:
         save_config('expendo2.ini', **cmd_parser.options.get_values_str())

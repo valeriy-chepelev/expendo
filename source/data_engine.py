@@ -371,6 +371,8 @@ class DataManager:
             key, issues = self._auto_filter(cat)
             key += f': {cat}'
             self._data.update({key: [_calculator(data_kind, issues, date) for date in self._dates]})
+        # total
+        self._data.update({'TOTAL': [_calculator(data_kind, self.issues, date) for date in self._dates]})
         # diff
         if dv:
             for key, values in self._data.items():
