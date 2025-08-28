@@ -2,8 +2,9 @@ import sys
 import logging
 from expendo_ui import ExpendoArgumentParser, CmdParser, CommandError
 from expendo_ui import read_config, save_config
-from data_engine import DataManager
+from data_engine import DataManager, issue_times
 from yandex_tracker_client import TrackerClient
+from alive_progress import alive_bar
 
 
 def export_data(engine, data):
@@ -20,7 +21,6 @@ def export_data(engine, data):
 
 
 def main():
-
     # Handlers
     def categories_handler():
         nonlocal data_manager
@@ -48,7 +48,7 @@ def main():
                         filemode='a',
                         format='%(asctime)s %(name)s %(levelname)s %(message)s',
                         datefmt='%d/%m/%y %H:%M:%S',
-                        level=logging.INFO if cl_args.debug else logging.ERROR)
+                        level=logging.DEBUG if cl_args.debug else logging.ERROR)
     logging.info('Started with arguments: %s', vars(cl_args))
 
     # load ini-file
@@ -75,15 +75,26 @@ def main():
 
     # Crate and check Tracker client connection
 
+    print('Connecting to Tracker')
+
     client = TrackerClient(cmd_parser.options.token, cmd_parser.options.org)
     if client.myself is None:
         raise Exception('Unable to connect Yandex Tracker.')
 
     # Get Tracker issues
 
+    print(f'Executing query "{cmd_parser.options.query}"')
+
     if cmd_parser.options.query == '':
         raise Exception('Empty issues query.')
     issues = list(client.issues.find(query=cmd_parser.options.query))
+
+    # precache issues
+
+    with alive_bar(len(issues), title='Cache issues', theme='classic') as bar:
+        for issue in issues:
+            issue_times(issue)
+            bar()
 
     # -------------------------------------
     # Init Data Manager
@@ -111,7 +122,7 @@ def main():
                 cmd_parser.parse(c)
                 c = input('>')
             except CommandError as err:
-                c = '?'  # Show help if error
+                c = '__?'  # Show prompt if error
                 print('Error:', err.__cause__ if err.__cause__ else err)
     finally:
         save_config('expendo2.ini', **cmd_parser.options.get_values_str())

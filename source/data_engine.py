@@ -19,13 +19,40 @@ TODAY = dt.datetime.now(dt.timezone.utc).date()  # Today, actually
 #             Data Access Procedures
 # ===================================================
 
+def _iso_split(s, split):
+    """ Splitter helper for converting ISO dt notation"""
+    if split in s:
+        n, s = s.split(split)
+    else:
+        n = 0
+    if n == '':
+        n = 0
+    return int(n), s
+
+
+def _iso_hrs(s):
+    """ Convert ISO dt notation to hours.
+    Mean 8 hours per day, 5 day per week.
+    Values except Weeks, Days, Hours ignored."""
+    if s is None:
+        return 0
+    # Remove prefix
+    s = s.split('P')[-1]
+    # Step through letter dividers
+    weeks, s = _iso_split(s, 'W')
+    days, s = _iso_split(s, 'D')
+    _, s = _iso_split(s, 'T')
+    hours, s = _iso_split(s, 'H')
+    # Convert all to hours
+    return (weeks * 5 + days) * 8 + hours
+
 
 @lru_cache(maxsize=None)  # Caching access to YT
 def issue_times(issue):
     """ Return reverse-sorted by time list of issue spends, estimates, status and resolution changes"""
     sp = [{'date': dt.datetime.strptime(log.updatedAt, '%Y-%m-%dT%H:%M:%S.%f%z'),
            'kind': field['field'].id,
-           'value': field['to'] if field['field'].id in ['spent', 'estimation']
+           'value': _iso_hrs(field['to']) if field['field'].id in ['spent', 'estimation']
            else field['to'].key if field['to'] is not None else ''}
           for log in issue.changelog for field in log.fields
           if field['field'].id in ['spent', 'estimation', 'resolution', 'status']]
@@ -94,7 +121,7 @@ def _tags(issue):
 @lru_cache(maxsize=None)  # Caching access to YT
 def _queue(issue):
     """ Return one issue queues """
-    return [issue.queue.key]
+    return issue.queue.key
 
 
 @lru_cache(maxsize=None)  # Caching access to YT
@@ -274,10 +301,12 @@ class DataManager:
 
     @property
     def categories_info(self):
-        return '\n'.join(['Categories:',
-                          f'- Queues: {", ".join(self.queues)}',
-                          f'- Tags: {", ".join(self.tags)}',
-                          f'- Components: {", ".join(self.components)}'])
+        info = f'Categories:\n- Queues: {", ".join(self.queues)}'
+        if len(self.tags):
+            info += f'\n- Tags: {", ".join(self.tags)}'
+        if len(self.components):
+            info += f'\n- Components: {", ".join(self.components)}'
+        return info
         # TODO: add projects and epics
 
     @property
@@ -288,15 +317,16 @@ class DataManager:
         """
         Update internal dates
         """
+        logging.debug(f'Updating period {p_start} {p_end} {length} {base}')
         match p_end:
-            case 'today', 'now':
+            case 'today' | 'now':
                 end_date = TODAY
             case 'yesterday':
                 end_date = TODAY - dt.timedelta(days=1)
             case _:
                 end_date = dt.datetime.strptime(p_end, '%d.%m.%y').date()
         match p_start:
-            case 'today', 'now':
+            case 'today' | 'now':
                 start_date = min(TODAY, end_date)
             case 'yesterday':
                 start_date = min(TODAY - dt.timedelta(days=1), end_date)
@@ -310,7 +340,7 @@ class DataManager:
                 start_date = end_date - relativedelta(months=3)
             case 'year':
                 start_date = end_date - relativedelta(years=1)
-            case 'all', 'full':
+            case 'all' | 'full':
                 start_date = min(self._start_date, end_date)
             case _:
                 start_date = min(dt.datetime.strptime(p_start, '%d.%m.%y').date(),

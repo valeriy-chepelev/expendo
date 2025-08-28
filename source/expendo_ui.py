@@ -57,16 +57,12 @@ def normalize_text(text):
 def read_config(filename):
     config = configparser.ConfigParser()
     config.read(filename)
-    assert 'token' in config['DEFAULT']
-    assert 'org' in config['DEFAULT']
     return config['DEFAULT']
 
 
 def save_config(filename, **kwargs):
     config = configparser.ConfigParser()
     config['DEFAULT'] = {key: str(value) for key, value in kwargs.items()}
-    assert 'token' in config['DEFAULT']
-    assert 'org' in config['DEFAULT']
     with open(filename, 'w') as configfile:
         config.write(configfile)
 
@@ -83,7 +79,7 @@ class ExpendoArgumentParser(argparse.ArgumentParser):
     def __init__(self):
         super(ExpendoArgumentParser, self).__init__(
             description='Expendo v.2.0 - Yandex Tracker stat crawler by VCh.',
-            epilog='Tracker connection settings and params in "expendo.ini".')
+            epilog='Tracker connection settings and params in "expendo2.ini".')
         self.add_argument('query', type=str, nargs='?', default=None,
                           help='issues query, default last call query')
         self.add_argument('-m', '--mode', type=str, choices=['daily', 'sprint'],
@@ -93,11 +89,11 @@ class ExpendoArgumentParser(argparse.ArgumentParser):
         self.add_argument('--base', type=lambda s: dt.datetime.strptime(s, '%d.%m.%y').date(),
                           help='sprint base date [dd.mm.yy]')
 
-        self.add_argument('--period', type=str, metavar='p_from',
+        self.add_argument('--period', type=str, dest='p_from',
                           choices=["week", "sprint", "month", "quarter", "year", "all"],
                           help='data period')
 
-        self.add_argument('--to', metavar='p_to',
+        self.add_argument('--to', dest='p_to',
                           type=lambda s: dt.datetime.strptime(s, '%d.%m.%y').date(),
                           help='data period final date [dd.mm.yy]')
 
@@ -115,7 +111,7 @@ class ExpendoArgumentParser(argparse.ArgumentParser):
 
 
 set_tokens = ['mode', 'length', 'base', 'period']
-ctrl_tokens = ['info', 'help', '?', 'h', 'quit', 'exit']
+ctrl_tokens = ['info', 'help', '?', 'h', 'quit', 'exit', 'q', '__?']
 engine_tokens = ['dump', 'plot', 'copy', 'csv']
 data_tokens = ['estimate', 'spent', 'original', 'burn']
 dv_tokens = ['dv']
@@ -200,15 +196,30 @@ class OptionsManager:
 
     @property
     def query(self):
-        return self._org
+        return self._query
+
+    @query.setter
+    def query(self, value):
+        if value is not None:
+            self._query = value
 
     @property
     def org(self):
         return self._org
 
+    @org.setter
+    def org(self, value):
+        if value is not None:
+            self._org = value
+
     @property
     def token(self):
         return self._token
+
+    @token.setter
+    def token(self, value):
+        if value is not None:
+            self._token = value
 
     @property
     def base(self):
@@ -353,6 +364,7 @@ class CmdParser:
     def parse(self, command: str):
         sh = shlex.shlex(command)
         sh.whitespace += ','
+        sh.wordchars += '.'
         self.tokens = [s.replace('"', '') for s in list(sh)]
         # if empty command - use 'info'
         if len(self.tokens) == 0:
@@ -365,7 +377,7 @@ class CmdParser:
             match t:
                 case 'help' | 'h' | '?':
                     print(help_str)
-                case 'exit' | 'quit':
+                case 'exit' | 'quit' | 'q':
                     sys.exit(0)
                 case 'info':
                     print('\n'.join([self.options.query,
@@ -373,9 +385,14 @@ class CmdParser:
                                      self.options.get_settings_str(),
                                      self.h_cats_str(),
                                      info_prompt]))
+                case '__?':
+                    print(info_prompt)
+            return
         # check global settings (multi settings allowed)
+        sets_flag = False
         while len(self.tokens) and match_t(self.tokens[0], set_tokens):
             self.parse_set_token()  # call another method, should pop its tokens
+            sets_flag = True
         # get engine
         if len(self.tokens) and (t := match_t(self.tokens[0], engine_tokens)):
             self.engine = t
@@ -386,7 +403,7 @@ class CmdParser:
                 self.data = t
                 self.recalc_flag = True
             self.tokens.pop(0)
-        if new_dv := (len(self.tokens) and match_t(self.tokens[0], dv_tokens)):
+        if new_dv := (len(self.tokens) > 0 and match_t(self.tokens[0], dv_tokens) is not None):
             self.tokens.pop(0)
         if self.dv != new_dv:
             self.dv = new_dv
@@ -410,11 +427,12 @@ class CmdParser:
                           length=self.options.length if self.options.mode == 'sprint' else 1,
                           base=self.options.base)
         if self.recalc_flag:
-            self.h_recalc(datakind=self.data,
+            self.h_recalc(data_kind=self.data,
                           dv=self.dv,
                           categories=self.filter)
             self.recalc_flag = False
-        self.h_export(engine=self.engine)
+        if not sets_flag:
+            self.h_export(engine=self.engine)
 
     def parse_set_token(self):
         t = match_t(self.tokens[0], set_tokens)
@@ -441,6 +459,7 @@ class CmdParser:
                 except ValueError as e:
                     raise CommandError from e
             case 'period':
+                self.tokens.insert(0, 'period')
                 self.parse_period()  # call another method, should pop its tokens
 
     def parse_period(self):
@@ -453,6 +472,8 @@ class CmdParser:
                     p_val = self.tokens.pop(0)
                     if p := match_t(p_val, period_tokens):
                         self.options.p_from = p
+                    elif match_t(p_val, ['to']):
+                        self.tokens.insert(0, 'to')
                     else:
                         try:
                             dt.datetime.strptime(p_val, '%d.%m.%y')
