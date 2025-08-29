@@ -8,13 +8,13 @@ from alive_progress import alive_bar
 from exporters import dump, plot
 
 
-def export_data(engine, data):
+def export_data(engine, data, segments=None):
     # TODO: exporter
     match engine:
         case 'dump':
-            dump(data)
+            dump(data, segments)
         case 'plot':
-            plot(data)
+            plot(data, segments)
         case 'copy':
             print(f"Copied {data['__kind']}.")
         case 'csv':
@@ -33,7 +33,7 @@ def main():
 
     def export_handler(engine):
         nonlocal data_manager
-        export_data(engine, data_manager.data)
+        export_data(engine, data_manager.data, data_manager.segments)
 
     def stat_info_handler():
         nonlocal data_manager

@@ -10,6 +10,7 @@ from dateutil.relativedelta import relativedelta
 import logging
 from types import SimpleNamespace
 from prettytable import PrettyTable
+from segmentation import calculate_lambda, bottom_up_segmentation
 
 _future_date = dt.datetime.now(dt.timezone.utc) + relativedelta(years=3)
 TODAY = dt.datetime.now(dt.timezone.utc).date()  # Today, actually
@@ -248,6 +249,7 @@ class DataManager:
         # dynamic data
         self._dates = []
         self._data = dict()
+        self._segments = None
         # updates
         self._update_stat()
         self._update_categories()
@@ -380,3 +382,17 @@ class DataManager:
         self._data.update({'__date': self._dates,
                            '__kind': data_kind,
                            '__unit': 'hrs/dt' if dv else 'hrs'})
+        self._update_segments()
+
+    @property
+    def segments(self):
+        return self._segments
+
+    def _update_segments(self):
+        self._segments = None
+        data_name = next(t for t in self._data.keys() if t[:2] != '__')
+        lam = calculate_lambda(self._data[data_name])
+        self._segments = bottom_up_segmentation(self._data[data_name],
+                                                2+(len(self._data[data_name]) // 10),
+                                                lam)
+        self._data.update({'__lam': lam})
