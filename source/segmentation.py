@@ -268,7 +268,8 @@ def bottom_up_segmentation(y, min_length, lam):
             'b': b,
             'y1': a * seg['start'] + b,
             'y2': a * seg['end'] + b,
-            'd0': -b / a if abs(a) > 1e-10 else -1
+            'd0': -b / a if abs(a) > 1e-10 else -1,
+            'lambda': lam
         })
 
     return final_segments

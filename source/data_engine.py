@@ -235,6 +235,21 @@ def _match(category):
     return f
 
 
+POSITIVE = 1.0
+NEGATIVE = -1.0
+
+
+def slope(kind: str) -> float:
+    match kind.lower():
+        case 'spent' | 'burn':
+            s = POSITIVE
+        case 'estimate' | 'original':
+            s = NEGATIVE
+        case _:
+            s = 0.0
+    return s
+
+
 class DataManager:
     def __init__(self, issues):
         super(DataManager, self).__init__()
@@ -249,7 +264,7 @@ class DataManager:
         # dynamic data
         self._dates = []
         self._data = dict()
-        self._segments = None
+        self._segments = []
         # updates
         self._update_stat()
         self._update_categories()
@@ -381,7 +396,8 @@ class DataManager:
         # additional data
         self._data.update({'__date': self._dates,
                            '__kind': data_kind,
-                           '__unit': 'hrs/dt' if dv else 'hrs'})
+                           '__unit': 'hrs/dt' if dv else 'hrs',
+                           '__dv': dv})
         self._update_segments()
 
     @property
@@ -389,10 +405,10 @@ class DataManager:
         return self._segments
 
     def _update_segments(self):
-        self._segments = None
-        data_name = next(t for t in self._data.keys() if t[:2] != '__')
-        lam = calculate_lambda(self._data[data_name])
-        self._segments = bottom_up_segmentation(self._data[data_name],
-                                                2+(len(self._data[data_name]) // 10),
-                                                lam)
-        self._data.update({'__lam': lam})
+        self._segments = []
+        for data_name in [t for t in self._data.keys() if t[:2] != '__']:
+            lam = calculate_lambda(self._data[data_name])
+            # show only segments with 'slope' or all for dv
+            self._segments.append([s for s in bottom_up_segmentation(self._data[data_name],
+                                                                     2 + (len(self._data[data_name]) // 10), lam)
+                                   if (s['a'] * slope(self._data['__kind']) > 0) or self._data['__dv']])
