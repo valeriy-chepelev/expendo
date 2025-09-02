@@ -276,7 +276,7 @@ class DataManager:
         return [t for t in income if matcher(t, value)]
 
     def _auto_filter(self, value):
-        # TODO: make join of filtered issues
+        # TODO: make join of filtered issues (how? OR or AND?)
         if value in self.tags:
             return 'Tag', self._filter('tag', value)
         elif value in self.components:
@@ -318,12 +318,11 @@ class DataManager:
 
     @property
     def categories_info(self):
-        info = f'- Queues: {", ".join(self.queues)}'
-        if len(self.tags):
-            info += f'\n- Tags: {", ".join(self.tags)}'
-        if len(self.components):
-            info += f'\n- Components: {", ".join(self.components)}'
-        return info
+        info = [f'- Queues: {", ".join(self.queues)}' if len(self.queues) > 1 else None,
+                f'- Tags: {", ".join(self.tags)}' if len(self.tags) else None,
+                f'- Components: {", ".join(self.components)}' if len(self.components) else None]
+        info = [s for s in info if s is not None]
+        return '\n'.join(info) if len(info) else '- Not found.'
         # TODO: add projects and epics
 
     @property
@@ -342,6 +341,10 @@ class DataManager:
                 end_date = TODAY - dt.timedelta(days=1)
             case _:
                 end_date = dt.datetime.strptime(p_end, '%d.%m.%y').date()
+        logging.debug(f'End date {end_date.strftime("%d.%m.%y")}')
+        end_date -= dt.timedelta(days=abs((end_date - base).days) % length)
+        logging.debug(f'Aligned end date {end_date.strftime("%d.%m.%y")}')
+
         match p_start:
             case 'today' | 'now':
                 start_date = min(TODAY, end_date)
@@ -362,10 +365,9 @@ class DataManager:
             case _:
                 start_date = min(dt.datetime.strptime(p_start, '%d.%m.%y').date(),
                                  end_date)
-
-        # align dates to sprint
-        end_date -= dt.timedelta(days=abs((end_date - base).days) % length)
+        logging.debug(f'Start date {start_date.strftime("%d.%m.%y")}')
         start_date -= dt.timedelta(days=length - abs((start_date - base).days) % length)
+        logging.debug(f'Aligned start date {start_date.strftime("%d.%m.%y")}')
 
         # gen dates
         self._dates = []
@@ -392,22 +394,22 @@ class DataManager:
             for key, values in self._data.items():
                 for i in range(len(values) - 1, 0, -1):  # start:stop:step, use reverse order
                     values[i] -= values[i - 1]
-                values[0] = 0
+                values[0] = values[1] if len(values) > 1 else 0
         # additional data
         self._data.update({'__date': self._dates,
                            '__kind': data_kind,
                            '__unit': 'hrs/dt' if dv else 'hrs',
                            '__dv': dv})
-        self._update_segments()
+        self._segments = []
 
     @property
     def segments(self):
         return self._segments
 
-    def _update_segments(self):
+    def update_segments(self, method, c):
         self._segments = []
         for data_name in [t for t in self._data.keys() if t[:2] != '__']:
-            lam = calculate_lambda(self._data[data_name])
+            lam = calculate_lambda(self._data[data_name], c, method)
             # show only segments with 'slope' or all for dv
             self._segments.append([s for s in bottom_up_segmentation(self._data[data_name],
                                                                      2 + (len(self._data[data_name]) // 10), lam)

@@ -95,7 +95,7 @@ def _estimate_noise_variance(y, method='residuals'):
 
     Args:
         y: List of time series values
-        method: Method for variance estimation ('residuals', 'differences', 'residuals_smooth')
+        method: Method for variance estimation ('residuals', 'differences', 'smooth')
 
     Returns:
         Estimated variance of noise in the data
@@ -126,7 +126,7 @@ def _estimate_noise_variance(y, method='residuals'):
         differences = [y[i] - y[i - 1] for i in range(1, n)]
         variance = _estimate_variance(differences) / 2
 
-    elif method == 'residuals_smooth':
+    elif method == 'smooth':
         # Use residuals from a smoothed version of the data
         window_size = max(3, min(10, n // 10))
         if window_size % 2 == 0:
@@ -140,7 +140,7 @@ def _estimate_noise_variance(y, method='residuals'):
         variance = _estimate_variance(residuals)
 
     else:
-        raise ValueError("Method must be 'residuals', 'differences', or 'residuals_smooth'")
+        raise ValueError("Method must be 'residuals', 'differences', or 'smooth'")
 
     return max(variance, 1e-10)  # Ensure non-zero variance
 
@@ -152,7 +152,7 @@ def calculate_lambda(y, c=5, method='residuals'):
     Args:
         y: List of time series values
         c: Multiplier constant (typically 3-10)
-        method: Method for variance estimation 'residuals', 'differences', or 'residuals_smooth'
+        method: Method for variance estimation 'residuals', 'differences', or 'smooth'
 
     Returns:
         Lambda value for segmentation regularization

@@ -17,8 +17,6 @@ def export_data(engine, data, segments=None):
             plot(data, segments)
         case 'copy':
             print(f"Copied {data['__kind']}.")
-        case 'csv':
-            print(f"CSVed {data['__kind']}.")
 
 
 def main():
@@ -76,7 +74,7 @@ def main():
 
     # Crate and check Tracker client connection
 
-    print('Connecting to Tracker')
+    print('Connecting to Tracker...')
 
     client = TrackerClient(cmd_parser.options.token, cmd_parser.options.org)
     if client.myself is None:
@@ -84,7 +82,7 @@ def main():
 
     # Get Tracker issues
 
-    print(f'Executing query "{cmd_parser.options.query}"')
+    print(f'Executing query "{cmd_parser.options.query}"...')
 
     if cmd_parser.options.query == '':
         raise Exception('Empty issues query.')
@@ -101,12 +99,15 @@ def main():
     # Init Data Manager
     # -------------------------------------
 
+    print('Initializing...')
+
     data_manager = DataManager(issues)
 
     # Connect  parser handlers
 
     cmd_parser.h_period = data_manager.update_period
     cmd_parser.h_recalc = data_manager.recalc
+    cmd_parser.h_trends = data_manager.update_segments
     cmd_parser.h_cats = categories_handler
     cmd_parser.h_cats_str = cat_string_handler
     cmd_parser.h_export = export_handler
@@ -123,7 +124,7 @@ def main():
                 cmd_parser.parse(c)
                 c = input('>')
             except CommandError as err:
-                c = 'fortheemperor'  # Show prompt if error
+                c = 'simpleinfointernal'  # Show prompt if error
                 print('Error:', err.__cause__ if err.__cause__ else err)
     finally:
         save_config('expendo2.ini', **cmd_parser.options.get_values_str())

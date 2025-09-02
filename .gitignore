@@ -1,4 +1,4 @@
-/source/expendo.ini
-/source/expendo.log
+/source/*.ini
+/source/*.log
 /source/expendo_cache/
 /source/cache/

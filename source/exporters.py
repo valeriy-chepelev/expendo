@@ -1,10 +1,8 @@
 from prettytable import PrettyTable
 import pyperclip
-import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.dates import DateFormatter
 from dateutil.relativedelta import relativedelta
-from math import atan, pi
 
 
 # ---------------------------------------------------------
@@ -15,23 +13,32 @@ from math import atan, pi
 def dump(data: dict, segments=None):
     tbl = PrettyTable()
     titles = [t for t in data.keys() if t[:2] != '__']
-    tbl.add_column('Date', [d.strftime('%d.%m.%y') for d in data['__date']], 'r')
-    for t in titles:
-        tbl.add_column(t, data[t], 'r')
-    print(f"{data['__kind'].capitalize()}, {data['__unit']}")
-    print(tbl)
+    if segments is None or (len(segments) == 0):
+        tbl.add_column('Date', [d.strftime('%d.%m.%y') for d in data['__date']], 'r')
+        for t in titles:
+            tbl.add_column(t, data[t], 'r')
+        print(f"{data['__kind'].capitalize()}, {data['__unit']}")
+        print(tbl)
     # segments
-    """    if segments is not None:
-        tbl.clear()
-        tbl.field_names = ['x1', 'x2', 'a', 'b', 'y1', 'y2', 'd0', 'fin_date']
-        for s in segments:
-            final = data['__date'][0] + relativedelta(
-                days=s['d0'] * (data['__date'][1] - data['__date'][0]).days)
-            tbl.add_row(list(s.values()) + [final])
+    else:
+        angle_units = 'K,hrs/dt2' if data['__dv'] else 'K,hrs/dt'
+        tbl.field_names = ['Row', 'Start', 'End', angle_units, 'Velocity', 'Final date', 'Lambda']
+        for idx, row in enumerate(segments):
+            for s in row:
+                tbl.add_row([titles[idx],
+                             data['__date'][s['x1']].strftime('%d.%m.%y'),
+                             data['__date'][s['x2']].strftime('%d.%m.%y'),
+                             f"{s['a']:.2f}",
+                             f"{s['a'] / ((data['__date'][1] - data['__date'][0]).days * 8.0):.2f}"
+                             if not data['__dv'] else 'N/A',
+                             f"{(data['__date'][0] + relativedelta(
+                                 days=s['d0'] * (data['__date'][1] - data['__date'][0]).days)).strftime('%d.%m.%y')}"
+                             if (s['a'] < 0) and not data['__dv'] else 'N/A',
+                             f"{s['lambda']:.2f}"])
+            tbl.add_divider()
         tbl.align = 'r'
-        tbl.float_format = '.2'
-        print(f'Segments (lambda={data["__lam"]}):')
-        print(tbl)"""
+        print(f'Linear regression trends of {data['__kind'].capitalize()}:')
+        print(tbl)
 
 
 # ---------------------------------------------------------
@@ -47,7 +54,7 @@ def plot(data: dict, segments=None):
             ax.plot(data['__date'], data[row],
                     label=row, marker=marker)
     # segments
-    if segments is not None:
+    if segments is not None and len(segments):
         for row in segments:
             for s in row:
                 x = [data['__date'][s['x1']], data['__date'][s['x2']]]
@@ -56,10 +63,10 @@ def plot(data: dict, segments=None):
                 # annotation
                 mid = x[0] + relativedelta(days=(x[-1] - x[0]).days // 2)
                 if data['__dv']:
-                    text = f"{abs(s['a']):.1f}h/dt"
+                    text = f"{abs(s['a']):.1f}h/dt2"
                 else:
                     speed = (data['__date'][1] - data['__date'][0]).days * 8
-                    text = f"{abs(s['a']):.1f}h {abs(s['a']) / speed:.1f}v"
+                    text = f"{abs(s['a']):.1f}h/dt {abs(s['a']) / speed:.1f}v"
                 if (s['a'] < 0) and not data['__dv']:
                     final = data['__date'][0] + relativedelta(
                         days=s['d0'] * (data['__date'][1] - data['__date'][0]).days)
@@ -73,6 +80,7 @@ def plot(data: dict, segments=None):
     plt.ylabel(data['__unit'])
     plt.grid()
     plt.legend()
+    # TODO: add window title
     plt.title(data['__kind'].capitalize())
     fig.autofmt_xdate()
     plt.draw()

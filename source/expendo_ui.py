@@ -110,36 +110,42 @@ class ExpendoArgumentParser(argparse.ArgumentParser):
 # ---------------------------------------------------------
 
 
-set_tokens = ['mode', 'length', 'base', 'period']
-ctrl_tokens = ['info', 'help', '?', 'h', 'quit', 'exit', 'q', 'fortheemperor', 'clear']
+set_tokens = ['mode', 'length', 'base', 'period', 'regression', 'factor']
+ctrl_tokens = ['info', 'help', '?', 'h', 'quit', 'exit', 'q', 'simpleinfointernal', 'clear']
 engine_tokens = ['dump', 'plot', 'copy', 'csv']
 data_tokens = ['estimate', 'spent', 'original', 'burn']
 dv_tokens = ['dv']
+trend_tokens = ['trends']
 filter_tokens = ['for']
 mode_tokens = ['daily', 'sprint']
+regression_tokens = ['residuals', 'differences', 'smooth']
 period_tokens = ['today', 'now', 'yesterday', 'week', 'sprint', 'month', 'quarter', 'year', 'all', 'full']
 date_tokens = ['today', 'now', 'yesterday']
-period_bound_tokens = ['at', 'to']
+period_bound_tokens = ['at', 'from', 'to']
 
+# TODO: add command to exclude categories ('clear' command will return)
 help_str = ("General control commands:\n"
             "  help, ?, h - this description\n"
             "  quit, exit - quits\n"
+            "  clear - reset selected categories (see 'filter' below)\n"
             "  info or just Enter - common stat and settings info\n"
-            "Global settings commands (stored to .ini):\n"
+            "Settings commands (stored to .ini):\n"
             "  mode sprint|daily - set time mode\n"
             "  length N - set sprint length (2 to 30 days)\n"
             "  base dd.mm.yy - set sprints base date\n"
             "  period dd.mm.yy|today|week|sprint|month|quarter|year|all [to dd.mm.yy|today] -\n"
             "    set analysis time range, from first date (or 'today') or with specified duration\n"
             "    up 'to' specified date or 'today'; 'today' will be aligned at future runs\n"
-            "\n"
+            "  regression residuals|differences|smooth - set trends scoring method, res default\n"
+            "  factor [3-10] - set trends scoring factor, 5 default\n"
             "Data commands:\n"
-            "[exporter] [data] [dv] [for filter] [at|to period]\n"
-            "  exporter: dump|plot|copy|csv - how to output, 'dump' is default\n"
+            "[exporter] [data] [dv] [trends] [for filter] [at|from|to period]\n"
+            "  exporter: dump|plot|copy - how to output, default is previous or 'dump'\n"
             "  data: estimate|spent|original|burn - what to output, default is previous or 'estimate'\n"
-            "  dv: type 'dv' to make data derivative by time scale, default no\n"
+            "  dv: type 'dv' to make data derivative by time scale, default No\n"
+            "  trends: type 'trends' to calculate linear regressions, default No\n"
             "  filter: list of data categories to sort (tags, queues, etc), type info to show categories\n"
-            "  period: local modifier of data time range, format as mentioned above:\n"
+            "  period: data time range, format as mentioned above:\n"
             "    dd.mm.yy|week|sprint|month|quarter|year|all [to dd.mm.yy|today]\n"
             "Example:\n"
             "  plot estimate for techdebt at all - show's graph of summary estimate\n"
@@ -157,7 +163,7 @@ def get_ngrams(token, n=2):
     return [token[i:i + n] for i in range(len(token) - n + 1)]
 
 
-def match_t(in_token, values, match_tolerance=0.5, n=2):
+def match_t(in_token, values, match_tolerance=0.5, n=2, lowered_penalty=0.8):
     """Finds best match token in values, using n-grams"""
     token = normalize_text(in_token)
     token_ngrams = set(get_ngrams(token, n))
@@ -165,22 +171,31 @@ def match_t(in_token, values, match_tolerance=0.5, n=2):
     best_score = 0.0
     for v in values:
         v = normalize_text(v)
-        v_ngrams = set(get_ngrams(v, n))  # TODO: add lowered ngrams to additional case-insensitive match with penalty
+        v_ngrams = set(get_ngrams(v, n))
         # Short words processing
         if not token_ngrams and not v_ngrams:
             score = 1.0 if token == v else 0.0
+            lowered_score = lowered_penalty if token.lower() == v.lower() else 0.0
         else:
+            # case-sensitive match
             intersection = token_ngrams & v_ngrams
             union = token_ngrams | v_ngrams
             score = len(intersection) / len(union) if union else 0.0
-        if score > best_score:
-            best_score = score
+            # case-insensitive match
+            lowered_t_n = {s.lower() for s in token_ngrams}
+            lowered_v_n = {s.lower() for s in v_ngrams}
+            intersection = lowered_t_n & lowered_v_n
+            union = lowered_t_n | lowered_v_n
+            lowered_score = lowered_penalty * len(intersection) / len(union) if union else 0.0
+        if (s := max(score, lowered_score)) > best_score:
+            best_score = s
             best_match = v
     return best_match if best_score > match_tolerance else None
 
 
 class OptionsManager:
-    _names = ['query', 'org', 'token', 'base', 'length', 'mode', 'p_from', 'p_to']
+    _names = ['query', 'org', 'token', 'base', 'length', 'mode', 'p_from', 'p_to',
+              'regression', 'factor']
 
     def __init__(self):
         # RO values
@@ -193,6 +208,8 @@ class OptionsManager:
         self._mode = 'daily'
         self._p_from = 'today'
         self._p_to = 'today'
+        self._regression = 'residuals'
+        self._factor = 5
         self._changed_flag = False
 
     @property
@@ -311,6 +328,36 @@ class OptionsManager:
             self._p_to = p
             self._changed_flag = True
 
+    @property
+    def regression(self):
+        return self._regression
+
+    @regression.setter
+    def regression(self, value):
+        if value not in regression_tokens:
+            raise Exception("Unknown 'regression' value")
+        if value != self._regression:
+            self._regression = value
+            self._changed_flag = True
+
+    @property
+    def factor(self):
+        return self._factor
+
+    @factor.setter
+    def factor(self, value):
+        # TODO: check factor limits
+        match type(value):
+            case builtins.str:
+                n = int(value)
+            case builtins.int:
+                n = value
+            case _:
+                raise Exception("Unknown type of 'factor' value")
+        if n != self._factor:
+            self._factor = n
+            self._changed_flag = True
+
     def set_values(self, **kwargs):
         for name in self._names:
             if name in kwargs and getattr(self, name) != kwargs[name] and kwargs[name] is not None:
@@ -325,7 +372,9 @@ class OptionsManager:
                 'length': str(self._length),
                 'mode': self._mode,
                 'p_from': self._p_from,
-                'p_to': self._p_to}
+                'p_to': self._p_to,
+                'regression': self._regression,
+                'factor': self._factor}
 
     @property
     def changed(self):
@@ -339,7 +388,8 @@ class OptionsManager:
         if self._mode == "sprint":
             sprint = f" ({self._length} days based {self._base.strftime('%d.%m.%y')})"
         return f"Settings: {self._mode.capitalize()}" \
-               f"{sprint} at {self._p_from} to {self._p_to}"
+               f"{sprint} at {self._p_from} to {self._p_to};\n" \
+               f"trend regression {self._regression}(C={self._factor})"
 
 
 class CmdParser:
@@ -351,12 +401,14 @@ class CmdParser:
         self.recalc_flag = True
         self.data = 'estimate'
         self.dv = False
+        self.trends = False
         self.engine = 'dump'
         self.tokens = None
 
         # === handlers ===
         self.h_period = lambda *args, **kwargs: None  # period change handler, func(start, end, len, base)
         self.h_recalc = lambda *args, **kwargs: None  # data recalculate handler, func(datakind, dv, categories)
+        self.h_trends = lambda *args, **kwargs: None  # segments recalculate handler, func(method, c)
         self.h_export = lambda *args, **kwargs: None  # data export handler, func(engine)
         self.h_cats = lambda *args, **kwargs: list()  # category list getter handler, func()
         self.h_cats_str = lambda *args, **kwargs: ''  # categories string info getter handler, func()
@@ -366,68 +418,85 @@ class CmdParser:
         sh = shlex.shlex(command)
         sh.whitespace += ','
         sh.wordchars += '.'
+        sh.wordchars += 'абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ+-_'
         self.tokens = [s.replace('"', '') for s in list(sh)]
         # if empty command - use 'info'
         if len(self.tokens) == 0:
             self.tokens.append('info')
-        # check controls
-        if t := match_t(self.tokens[0], ctrl_tokens):
-            self.tokens.pop(0)
-            if len(self.tokens):
-                raise CommandError(f"Command '{t}' don't need parameters.")
-            match t:
-                case 'help' | 'h' | '?':
-                    print(help_str)
-                case 'exit' | 'quit' | 'q':
-                    sys.exit(0)
-                case 'info':
-                    f_info = ', '.join(self.filter)
-                    print('\n'.join([self.options.query,
-                                     self.h_stat_info(),
-                                     self.options.get_settings_str(),
-                                     'Categories' + (f' (selected {f_info}):' if len(f_info) else ':'),
-                                     self.h_cats_str(),
-                                     info_prompt]))
-                case 'fortheemperor':
-                    print(info_prompt)
-                case 'clear':
-                    self.filter = []
+        settings_changed = False  # flag settins was changed - no exporting in this case
+        new_dv = False
+        new_trends = False
+        tokens_count = len(self.tokens) + 1  # Tokens count are used to detect no tokens extracted during cycle
+        while 0 < len(self.tokens) < tokens_count:
+            tokens_count = len(self.tokens)
+            # check controls and exit
+            if t := match_t(self.tokens[0], ctrl_tokens):
+                self.tokens.pop(0)
+                if len(self.tokens):
+                    raise CommandError(f"Command '{t}' don't need parameters.")
+                match t:
+                    case 'help' | 'h' | '?':
+                        print(help_str)
+                    case 'exit' | 'quit' | 'q':
+                        sys.exit(0)
+                    case 'info':
+                        f_info = ', '.join(self.filter)
+                        print('\n'.join([self.options.query,
+                                         self.h_stat_info(),
+                                         self.options.get_settings_str(),
+                                         'Categories' + (f' (selected {f_info}):' if len(f_info) else ':'),
+                                         self.h_cats_str(),
+                                         info_prompt]))
+                    case 'simpleinfointernal':
+                        print(info_prompt)
+                    case 'clear':
+                        self.filter = []
+                        self.recalc_flag = True
+                return
+            # check global settings
+            if len(self.tokens) and match_t(self.tokens[0], set_tokens):
+                self.parse_set_token()  # call another method, should pop its tokens
+                settings_changed = True
+            # get engine
+            if len(self.tokens) and (t := match_t(self.tokens[0], engine_tokens)):
+                self.engine = t
+                self.tokens.pop(0)
+            # get data
+            if len(self.tokens) and (t := match_t(self.tokens[0], data_tokens)):
+                if t != self.data:
+                    self.data = t
                     self.recalc_flag = True
-            return
-        # check global settings (multi settings allowed)
-        sets_flag = False
-        while len(self.tokens) and match_t(self.tokens[0], set_tokens):
-            self.parse_set_token()  # call another method, should pop its tokens
-            sets_flag = True
-        # get engine
-        if len(self.tokens) and (t := match_t(self.tokens[0], engine_tokens)):
-            self.engine = t
-            self.tokens.pop(0)
-        # get data
-        if len(self.tokens) and (t := match_t(self.tokens[0], data_tokens)):
-            if t != self.data:
-                self.data = t
-                self.recalc_flag = True
-            self.tokens.pop(0)
-        # check dv
-        if new_dv := (len(self.tokens) > 0 and match_t(self.tokens[0], dv_tokens) is not None):
-            self.tokens.pop(0)
+                self.tokens.pop(0)
+            # check dv
+            if len(self.tokens) and match_t(self.tokens[0], dv_tokens):
+                new_dv = True
+                self.tokens.pop(0)
+            # check dv
+            if len(self.tokens) and match_t(self.tokens[0], trend_tokens):
+                new_trends = True
+                self.tokens.pop(0)
+            # check categories
+            if len(self.tokens) and match_t(self.tokens[0], filter_tokens):
+                self.tokens.pop(0)
+                new_filter = self.parse_filter()
+                if self.filter != new_filter and len(new_filter):
+                    self.filter = new_filter
+                    self.recalc_flag = True
+            # check period
+            if len(self.tokens) and match_t(self.tokens[0], period_bound_tokens):
+                self.parse_period()  # call another method, should pop its tokens
+
+        # --- end tokens parsing ---
+
+        if len(self.tokens):
+            raise CommandError(f"Can't understand '{' '.join(self.tokens)}'.")
         if self.dv != new_dv:
             self.dv = new_dv
             self.recalc_flag = True
-        # check categories
-        if len(self.tokens) and match_t(self.tokens[0], filter_tokens):
-            self.tokens.pop(0)
-            new_filter = self.parse_filter()
-            if self.filter != new_filter and len(new_filter):
-                self.filter = new_filter
-                self.recalc_flag = True
-
-        if len(self.tokens) and match_t(self.tokens[0], period_bound_tokens):
-            self.parse_period()  # call another method, should pop its tokens
-        if len(self.tokens):
-            raise CommandError(f"Can't understand '{' '.join(self.tokens)}'.")
-        # here call handlers
+        if self.trends != new_trends:
+            self.trends = new_trends
+            self.recalc_flag = True
+        # call handlers
         if self.options.changed:
             self.recalc_flag = True
             self.h_period(p_start=self.options.p_from,
@@ -438,8 +507,10 @@ class CmdParser:
             self.h_recalc(data_kind=self.data,
                           dv=self.dv,
                           categories=self.filter)
+            if self.trends:
+                self.h_trends(self.options.regression, self.options.factor)
             self.recalc_flag = False
-        if not sets_flag:
+        if not settings_changed:
             self.h_export(engine=self.engine)
 
     def parse_set_token(self):
@@ -469,14 +540,26 @@ class CmdParser:
             case 'period':
                 self.tokens.insert(0, 'period')
                 self.parse_period()  # call another method, should pop its tokens
+            case 'factor':
+                try:
+                    v = int(self.tokens.pop(0))
+                    self.options.factor = v
+                except (ArgumentError, ValueError) as e:
+                    raise CommandError from e
+            case 'regression':
+                if v := match_t(self.tokens.pop(0), regression_tokens):
+                    self.options.regression = v
+                else:
+                    raise CommandError(f"Regression value '{', '.join(regression_tokens)}' required.")
 
     def parse_period(self):
         # we enter here with tokens 'period xxxx [to yyyy]' - global setting
         # or 'at xxxx [to yyyy]' - local setting
         # or 'to yyyy' - local setting
-        while len(self.tokens) and (t := match_t(self.tokens.pop(0), set(period_bound_tokens) | {'period'})):
+        while len(self.tokens) and (t := match_t(self.tokens[0], set(period_bound_tokens) | {'period'})):
+            self.tokens.pop(0)
             match t:
-                case 'period' | 'at':
+                case 'period' | 'at' | 'from':
                     p_val = self.tokens.pop(0)
                     if p := match_t(p_val, period_tokens):
                         self.options.p_from = p
@@ -500,16 +583,9 @@ class CmdParser:
                             raise CommandError from e
 
     def parse_filter(self):
-        # The 'next' construction return index of 'at'/'to' token (finishes a filter list)
-        # or len(tokens) if no 'at'/'to'.
-        index = next((i for i, t in enumerate(self.tokens) if match_t(t, period_bound_tokens)), len(self.tokens))
-        if index == 0:
-            raise CommandError('The "by" sentence requires list of categories.')
         cat_list = self.h_cats()
         r = set()
-        for i in range(index):
-            if v := match_t(t := self.tokens.pop(0), cat_list):
-                r.add(v)
-            else:
-                print(f'Warning: "{t}" is not a category.')
+        while len(self.tokens) and (v := match_t(self.tokens[0], cat_list)):
+            r.add(v)
+            self.tokens.pop(0)
         return sorted(list(r))
