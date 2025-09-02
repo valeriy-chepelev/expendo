@@ -131,6 +131,24 @@ def _components(issue):
     return [comp.name for comp in issue.components]
 
 
+@lru_cache(maxsize=None)
+def _projects(issue):
+    """ Return one issue projects names"""
+    # TODO: extract projects names, check project is assigned
+    return [issue.project.primary.display,
+            issue.project.secondary]
+
+
+@lru_cache(maxsize=None)
+def _epic(issue):
+    """ Return one issue root epic name"""
+    # TODO: check it works
+    x = issue
+    while x.parent is not None:
+        x = x.parent
+    return x.summary if x.type.key == 'epic' else 'NoEpic'
+
+
 def get_start_date(issues: list):
     """ Return start date (first estimation date) of issues """
     try:
