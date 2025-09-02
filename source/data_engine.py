@@ -276,7 +276,7 @@ class DataManager:
         return [t for t in income if matcher(t, value)]
 
     def _auto_filter(self, value):
-        # TODO: make join of filtered issues (how? OR or AND?)
+        # TODO: make join of filtered issues (OR - for case when value match some classes)
         if value in self.tags:
             return 'Tag', self._filter('tag', value)
         elif value in self.components:

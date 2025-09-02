@@ -15,45 +15,6 @@ def normalize_text(text):
     return unicodedata.normalize('NFC', text.strip())
 
 
-# =======================================================================
-# Expendo-2 UI command system:
-# combine of argument parser to select issues and define parameters
-# and command prompt to process data, export results and change parameters
-# command interpreter see https://docs.python.org/dev/library/cmd.html
-#
-# Arguments:
-#  - query
-#  - (sprint or daily time mode)
-#  - (sprint base date)
-#  - (sprint length)
-#  - (debug mode)
-#
-# Commands:
-#  - [info] - list wellcome prompt
-#  - ?/help - list commands help string
-#  - set length (int) - change length value
-#  - set base (dd.mm.yy) - change base date
-#  - set mode ("daily"/"sprint") - change mode value
-#  - set period (dd.mm.yy/"week"/"sprint"/"month"/"quarter"/"year"/"all") [to (dd.mm.yy/"today")] - change period values
-#  - [dump]/plot/copy/excel ("this"/"estimate"/"spent"/"original"/"burned") [dv] [for {vals}] [at (period)] -
-# retrieve data (2-nd group) for period (or use predefined period), make dv/dt (if dv specified), filters and sorts by
-# defined vals, sent result to output engine specified in 1st group.
-#
-# Prompt info:
-#  Query text
-#  | tasks: count, open, estimate, spent, original, burned
-#  | bugs:
-#  | total:
-#  Settings: Daily for all, Sprint (14 days based 01.01.25) for quarter to 31.12.24
-#  Categories:
-#  - Queues: MTHW, MTFW, MTPD
-#  - Tags: fw, schematic, construction, qa
-#  - Components: None
-#  - Top Epics: None (top-level Epic ids and names of projects)
-#  - Projects: Name (all the projects of queried issues)
-#  Enter ? to commands list (i.e. 'plot estimate'), CR to this stat, or Q to quit.
-
-
 def read_config(filename):
     config = configparser.ConfigParser()
     config.read(filename)
@@ -407,7 +368,7 @@ class CmdParser:
 
         # === handlers ===
         self.h_period = lambda *args, **kwargs: None  # period change handler, func(start, end, len, base)
-        self.h_recalc = lambda *args, **kwargs: None  # data recalculate handler, func(datakind, dv, categories)
+        self.h_recalc = lambda *args, **kwargs: None  # data recalculate handler, func(data_kind, dv, categories)
         self.h_trends = lambda *args, **kwargs: None  # segments recalculate handler, func(method, c)
         self.h_export = lambda *args, **kwargs: None  # data export handler, func(engine)
         self.h_cats = lambda *args, **kwargs: list()  # category list getter handler, func()
@@ -423,7 +384,7 @@ class CmdParser:
         # if empty command - use 'info'
         if len(self.tokens) == 0:
             self.tokens.append('info')
-        settings_changed = False  # flag settins was changed - no exporting in this case
+        settings_changed = False  # flag settings was changed - no exporting in this case
         new_dv = False
         new_trends = False
         tokens_count = len(self.tokens) + 1  # Tokens count are used to detect no tokens extracted during cycle
