@@ -132,20 +132,22 @@ def _components(issue):
 
 
 @lru_cache(maxsize=None)
-def _projects(issue):
-    """ Return one issue projects names"""
-    # TODO: extract projects names, check project is assigned
-    return [issue.project.primary.display,
-            issue.project.secondary]
+def _project(issue):
+    """ Return one issue main project name"""
+    return p.display if (p := issue.project) is not None else 'NoProject'
+
+
+@lru_cache(maxsize=None)
+def _parent(issue):
+    return issue.parent
 
 
 @lru_cache(maxsize=None)
 def _epic(issue):
     """ Return one issue root epic name"""
-    # TODO: check it works
     x = issue
-    while x.parent is not None:
-        x = x.parent
+    while (p := _parent(x)) is not None:
+        x = p
     return x.summary if x.type.key == 'epic' else 'NoEpic'
 
 
@@ -230,9 +232,6 @@ def _calculator(data_kind, issues, date):
 def _match(category):
     """Function fabric - return issue match function"""
 
-    def test(*args):
-        return f'Test: {list(args)}'
-
     def issue_type(issue, val):
         return issue.type.key == val
 
@@ -245,7 +244,11 @@ def _match(category):
     def queue(issue, val):
         return val == _queue(issue)
 
-    # TODO: add projects and epics matchers
+    def project(issue, val):
+        return val == _project(issue)
+
+    def epic(issue, val):
+        return val == _epic(issue)
 
     assert category in locals()
     f = locals()[category]
@@ -279,6 +282,8 @@ class DataManager:
         self.tags = []
         self.queues = []
         self.components = []
+        self.projects = dict()
+        self.epics = dict()
         # dynamic data
         self._dates = []
         self._data = dict()
@@ -306,10 +311,15 @@ class DataManager:
 
     def _update_categories(self):
         # collect categories info, called ones from constructor
+        # TODO: rewrite with for: one request to Tracker to get issue, also show progress bar
         self.tags = list({tag for t in self.issues for tag in _tags(t)})
         self.queues = list({_queue(t) for t in self.issues})
         self.components = list({component for t in self.issues for component in _components(t)})
-        # TODO: add projects and epics
+        prj = {_project(t) for t in self.issues}
+        self.projects = {f"Project{idx}": name for idx, name in enumerate(prj, start=1)}
+        # TODO: better to use issue key numbers as epic id
+        epc = {_epic(t) for t in self.issues}
+        self.epics = {f"Epic{idx}": name for idx, name in enumerate(epc, start=1)}
 
     def _update_stat(self):
         # calculate common statistic data, called ones from constructor
@@ -339,9 +349,14 @@ class DataManager:
         info = [f'- Queues: {", ".join(self.queues)}' if len(self.queues) > 1 else None,
                 f'- Tags: {", ".join(self.tags)}' if len(self.tags) else None,
                 f'- Components: {", ".join(self.components)}' if len(self.components) else None]
+        if len(self.projects) > 1:
+            info.append('- Projects:')
+            info.extend([f'  {key}: {val}' for key, val in self.projects.items()])
+        if len(self.epics) > 1:
+            info.append('- Root epics:')
+            info.extend([f'  {key}: {val}' for key, val in self.epics.items()])
         info = [s for s in info if s is not None]
         return '\n'.join(info) if len(info) else '- Not found.'
-        # TODO: add projects and epics
 
     @property
     def stat_info(self):
