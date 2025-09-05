@@ -23,21 +23,21 @@ def dump(data: dict, segments=None):
     else:
         angle_units = 'K,hrs/dt2' if data['__dv'] else 'K,hrs/dt'
         tbl.field_names = ['Row', 'Start', 'End', angle_units, 'Velocity', 'Final date', 'Lambda']
+        d0, d1 = data['__date'][:2]
         for idx, row in enumerate(segments):
             for s in row:
                 tbl.add_row([titles[idx],
                              data['__date'][s['x1']].strftime('%d.%m.%y'),
                              data['__date'][s['x2']].strftime('%d.%m.%y'),
                              f"{s['a']:.2f}",
-                             f"{s['a'] / ((data['__date'][1] - data['__date'][0]).days * 8.0):.2f}"
+                             f"{s['a'] / ((d1 - d0).days * 8.0):.2f}"
                              if not data['__dv'] else 'N/A',
-                             f"{(data['__date'][0] + relativedelta(
-                                 days=s['d0'] * (data['__date'][1] - data['__date'][0]).days)).strftime('%d.%m.%y')}"
+                             f"{(d0 + relativedelta(days=s['d0'] * (d1 - d0).days)).strftime('%d.%m.%y')}"
                              if (s['a'] < 0) and not data['__dv'] else 'N/A',
                              f"{s['lambda']:.2f}"])
             tbl.add_divider()
         tbl.align = 'r'
-        print(f'Linear regression trends of {data['__kind'].capitalize()}:')
+        print(f'Linear regression trends of {data["__kind"].capitalize()}:')
         print(tbl)
 
 
@@ -48,7 +48,8 @@ def dump(data: dict, segments=None):
 
 def plot(data: dict, segments=None):
     fig, ax = plt.subplots()
-    marker = '.' if len(data['__date']) > 1 and (data['__date'][1] - data['__date'][0]).days > 1 else None
+    d0, d1 = data['__date'][:2]
+    marker = '.' if len(data['__date']) > 1 and (d1 - d0).days > 1 else None
     for row in data.keys():
         if row[:2] != '__':
             ax.plot(data['__date'], data[row],
@@ -65,11 +66,11 @@ def plot(data: dict, segments=None):
                 if data['__dv']:
                     text = f"{abs(s['a']):.1f}h/dt2"
                 else:
-                    speed = (data['__date'][1] - data['__date'][0]).days * 8
+                    speed = (d1 - d0).days * 8
                     text = f"{abs(s['a']):.1f}h/dt {abs(s['a']) / speed:.1f}v"
                 if (s['a'] < 0) and not data['__dv']:
-                    final = data['__date'][0] + relativedelta(
-                        days=s['d0'] * (data['__date'][1] - data['__date'][0]).days)
+                    final = d0 + relativedelta(
+                        days=s['d0'] * (d1 - d0).days)
                     text += f'\n{final:%d.%m.%y}'
                 plt.text(mid, sum(y) // 2, text,
                          bbox={'facecolor': 'lightgray', 'edgecolor': 'none', 'alpha': 0.7, 'pad': 2})

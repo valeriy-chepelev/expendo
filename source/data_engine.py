@@ -344,8 +344,14 @@ class DataManager:
         self.tags = natsorted(list(t))
         self.queues = natsorted(list(q))
         self.components = natsorted(list(c))
-        self.projects = {f"Project{idx}": name
-                         for idx, name in enumerate(natsorted(list(p)), start=1)}
+        p = sorted(p)
+        try:
+            p.pop(p.index('NoProject'))
+            p.insert(0,'NoProject')
+        except ValueError:
+            pass
+        self.projects = {f"P{idx}": name
+                         for idx, name in enumerate(p, start=0)}
         self.epics = dict(natsorted(e.items(), key=lambda x: x[0]))
 
     def _update_stat(self):
@@ -377,11 +383,11 @@ class DataManager:
                 f'- Tags: {", ".join(self.tags)}' if len(self.tags) else None,
                 f'- Components: {", ".join(self.components)}' if len(self.components) else None]
         if len(self.projects) > 1:
-            info.append('- Projects:')
-            info.extend([f'  {key}: {val}' for key, val in self.projects.items()])
+            p_list = [f'{key}: {val}' for key, val in self.projects.items()]
+            info.append(f'- Projects: {", ".join(p_list)}')
         if len(self.epics) > 1:
-            info.append('- Root epics:')
-            info.extend([f'  {key}: {val}' for key, val in self.epics.items()])
+            e_list = [f'{key}: {val}' for key, val in self.epics.items()]
+            info.append(f'- Root epics: {", ".join(e_list)}')
         info = [s for s in info if s is not None]
         return '\n'.join(info) if len(info) else '- Not found.'
 
