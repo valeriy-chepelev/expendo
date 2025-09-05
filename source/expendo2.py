@@ -90,16 +90,15 @@ def main():
 
     # precache issues
 
-    with alive_bar(len(issues), title='Cache issues', theme='classic') as bar:
+    with alive_bar(len(issues), title='Caching issues', theme='classic') as bar:
         for issue in issues:
             issue_times(issue)
             bar()
+    logging.debug(f'Cache stat issue_times {issue_times.cache_info()}')
 
     # -------------------------------------
     # Init Data Manager
     # -------------------------------------
-
-    print('Initializing...')
 
     data_manager = DataManager(issues)
 

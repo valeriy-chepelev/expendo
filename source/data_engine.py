@@ -11,10 +11,13 @@ import logging
 from types import SimpleNamespace
 from prettytable import PrettyTable
 from segmentation import calculate_lambda, bottom_up_segmentation
+from alive_progress import alive_bar
+from natsort import natsorted
 
 _future_date = dt.datetime.now(dt.timezone.utc) + relativedelta(years=3)
 TODAY = dt.datetime.now(dt.timezone.utc).date()  # Today, actually
 
+_h_issue_by_key = lambda key:None
 
 # ===================================================
 #             Data Access Procedures
@@ -139,6 +142,7 @@ def _project(issue):
 
 @lru_cache(maxsize=None)
 def _parent(issue):
+    # TODO: caching now works here!!!
     return issue.parent
 
 
@@ -148,7 +152,7 @@ def _epic(issue):
     x = issue
     while (p := _parent(x)) is not None:
         x = p
-    return x.summary if x.type.key == 'epic' else 'NoEpic'
+    return (x.key, x.summary) if x.type.key == 'epic' else ('0', 'NoEpic')
 
 
 def get_start_date(issues: list):
@@ -289,8 +293,16 @@ class DataManager:
         self._data = dict()
         self._segments = []
         # updates
+        print('Calculating statistics...')
         self._update_stat()
         self._update_categories()
+        logging.debug(f'Cache stat _tags {_tags.cache_info()}')
+        logging.debug(f'Cache stat _components {_components.cache_info()}')
+        logging.debug(f'Cache stat _project {_project.cache_info()}')
+        logging.debug(f'Cache stat _epic {_epic.cache_info()}')
+        logging.debug(f'Cache stat _parent {_parent.cache_info()}')
+
+        print('Calculating total start date...')
         self._start_date = get_start_date(self.issues).date()
 
     def _filter(self, category, value, issues=None):
@@ -311,15 +323,30 @@ class DataManager:
 
     def _update_categories(self):
         # collect categories info, called ones from constructor
-        # TODO: rewrite with for: one request to Tracker to get issue, also show progress bar
-        self.tags = list({tag for t in self.issues for tag in _tags(t)})
-        self.queues = list({_queue(t) for t in self.issues})
-        self.components = list({component for t in self.issues for component in _components(t)})
-        prj = {_project(t) for t in self.issues}
-        self.projects = {f"Project{idx}": name for idx, name in enumerate(prj, start=1)}
-        # TODO: better to use issue key numbers as epic id
-        epc = {_epic(t) for t in self.issues}
-        self.epics = {f"Epic{idx}": name for idx, name in enumerate(epc, start=1)}
+        t = set()
+        q = set()
+        c = set()
+        p = set()
+        e = dict()
+        with alive_bar(len(self.issues), title='Updating categories', theme='classic') as bar:
+            for issue in self.issues:
+                t.update(_tags(issue))
+                q.add(_queue(issue))
+                c.update(_components(issue))
+                p.add(_project(issue))
+                epic = _epic(issue)
+                try:
+                    key = epic[0][str(epic[0]).index('-')+1:]
+                except ValueError:
+                    key = epic[0]
+                e.update({key: epic[1]})
+                bar()
+        self.tags = natsorted(list(t))
+        self.queues = natsorted(list(q))
+        self.components = natsorted(list(c))
+        self.projects = {f"Project{idx}": name
+                         for idx, name in enumerate(natsorted(list(p)), start=1)}
+        self.epics = dict(natsorted(e.items(), key=lambda x: x[0]))
 
     def _update_stat(self):
         # calculate common statistic data, called ones from constructor
