@@ -17,7 +17,8 @@ from natsort import natsorted
 _future_date = dt.datetime.now(dt.timezone.utc) + relativedelta(years=3)
 TODAY = dt.datetime.now(dt.timezone.utc).date()  # Today, actually
 
-_h_issue_by_key = lambda key:None
+_h_issue_by_key = lambda key: None
+
 
 # ===================================================
 #             Data Access Procedures
@@ -140,6 +141,7 @@ def _project(issue):
     return p.display if (p := issue.project) is not None else 'NoProject'
 
 
+"""
 @lru_cache(maxsize=None)
 def _parent(issue):
     # TODO: caching now works here!!!
@@ -148,11 +150,11 @@ def _parent(issue):
 
 @lru_cache(maxsize=None)
 def _epic(issue):
-    """ Return one issue root epic name"""
     x = issue
     while (p := _parent(x)) is not None:
         x = p
     return (x.key, x.summary) if x.type.key == 'epic' else ('0', 'NoEpic')
+"""
 
 
 def get_start_date(issues: list):
@@ -233,33 +235,6 @@ def _calculator(data_kind, issues, date):
 #             Data Manager Class
 # ===================================================
 
-def _match(category):
-    """Function fabric - return issue match function"""
-
-    def issue_type(issue, val):
-        return issue.type.key == val
-
-    def tag(issue, val):
-        return val in _tags(issue)
-
-    def component(issue, val):
-        return val in _components(issue)
-
-    def queue(issue, val):
-        return val == _queue(issue)
-
-    def project(issue, val):
-        return val == _project(issue)
-
-    def epic(issue, val):
-        return val == _epic(issue)
-
-    assert category in locals()
-    f = locals()[category]
-    assert callable(f)
-    return f
-
-
 POSITIVE = 1.0
 NEGATIVE = -1.0
 
@@ -275,11 +250,21 @@ def slope(kind: str) -> float:
     return s
 
 
+def _cache_info():
+    logging.debug(f'Cache stat _times {issue_times.cache_info()}')
+    logging.debug(f'Cache stat _original {issue_original.cache_info()}')
+    logging.debug(f'Cache stat _tags {_tags.cache_info()}')
+    logging.debug(f'Cache stat _queues {_queue.cache_info()}')
+    logging.debug(f'Cache stat _components {_components.cache_info()}')
+    logging.debug(f'Cache stat _project {_project.cache_info()}')
+
+
 class DataManager:
-    def __init__(self, issues):
+    def __init__(self, issues, tree):
         super(DataManager, self).__init__()
         # static data
         self.issues = issues  # issues list
+        self.tree = tree  # issues epics info
         self._stat = ''  # statistical data string
         self._start_date = TODAY
         # categories
@@ -295,18 +280,43 @@ class DataManager:
         # updates
         print('Calculating statistics...')
         self._update_stat()
+        print('Updating categories...')
         self._update_categories()
-        logging.debug(f'Cache stat _tags {_tags.cache_info()}')
-        logging.debug(f'Cache stat _components {_components.cache_info()}')
-        logging.debug(f'Cache stat _project {_project.cache_info()}')
-        logging.debug(f'Cache stat _epic {_epic.cache_info()}')
-        logging.debug(f'Cache stat _parent {_parent.cache_info()}')
-
+        _cache_info()
         print('Calculating total start date...')
         self._start_date = get_start_date(self.issues).date()
 
+    def _epic(self, issue):
+        return self.tree[issue.key]
+
+    def _match(self, category):
+        """Function fabric - return issue match function"""
+
+        def issue_type(issue, val):
+            return issue.type.key == val
+
+        def tag(issue, val):
+            return val in _tags(issue)
+
+        def component(issue, val):
+            return val in _components(issue)
+
+        def queue(issue, val):
+            return val == _queue(issue)
+
+        def project(issue, val):
+            return val == _project(issue)
+
+        def epic(issue, val):
+            return val == self._epic(issue)
+
+        assert category in locals()
+        f = locals()[category]
+        assert callable(f)
+        return f
+
     def _filter(self, category, value, issues=None):
-        matcher = _match(category)
+        matcher = self._match(category)
         income = self.issues if issues is None else issues
         return [t for t in income if matcher(t, value)]
 
@@ -328,26 +338,24 @@ class DataManager:
         c = set()
         p = set()
         e = dict()
-        with alive_bar(len(self.issues), title='Updating categories', theme='classic') as bar:
-            for issue in self.issues:
-                t.update(_tags(issue))
-                q.add(_queue(issue))
-                c.update(_components(issue))
-                p.add(_project(issue))
-                epic = _epic(issue)
-                try:
-                    key = epic[0][str(epic[0]).index('-')+1:]
-                except ValueError:
-                    key = epic[0]
-                e.update({key: epic[1]})
-                bar()
+        for issue in self.issues:
+            t.update(_tags(issue))
+            q.add(_queue(issue))
+            c.update(_components(issue))
+            p.add(_project(issue))
+            epic = self._epic(issue)
+            try:
+                key = epic[0][str(epic[0]).index('-') + 1:]
+            except ValueError:
+                key = epic[0]
+            e.update({key: epic[1]})
         self.tags = natsorted(list(t))
         self.queues = natsorted(list(q))
         self.components = natsorted(list(c))
         p = sorted(p)
         try:
             p.pop(p.index('NoProject'))
-            p.insert(0,'NoProject')
+            p.insert(0, 'NoProject')
         except ValueError:
             pass
         self.projects = {f"P{idx}": name

@@ -2,10 +2,11 @@ import sys
 import logging
 from expendo_ui import ExpendoArgumentParser, CmdParser, CommandError
 from expendo_ui import read_config, save_config
-from data_engine import DataManager, issue_times
+from data_engine import DataManager, issue_times, _cache_info
 from yandex_tracker_client import TrackerClient
 from alive_progress import alive_bar
 from exporters import dump, plot
+from root_finder import TreeCache
 
 
 def export_data(engine, data, segments=None):
@@ -90,17 +91,22 @@ def main():
 
     # precache issues
 
-    with alive_bar(len(issues), title='Caching issues', theme='classic') as bar:
+    with alive_bar(len(issues), title='Caching issues data', theme='classic') as bar:
         for issue in issues:
             issue_times(issue)
             bar()
-    logging.debug(f'Cache stat issue_times {issue_times.cache_info()}')
+
+    tree = TreeCache()
+    with alive_bar(len(issues), title='Scanning issues tree', theme='classic') as bar:
+        for issue in issues:
+            tree.add(issue)
+            bar()
 
     # -------------------------------------
     # Init Data Manager
     # -------------------------------------
 
-    data_manager = DataManager(issues)
+    data_manager = DataManager(issues, tree.roots)
 
     # Connect  parser handlers
 
@@ -127,6 +133,7 @@ def main():
                 print('Error:', err.__cause__ if err.__cause__ else err)
     finally:
         save_config('expendo2.ini', **cmd_parser.options.get_values_str())
+        _cache_info()
 
     # ---------------end-------------------
 

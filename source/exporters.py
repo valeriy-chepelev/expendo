@@ -13,14 +13,14 @@ from dateutil.relativedelta import relativedelta
 def dump(data: dict, segments=None):
     tbl = PrettyTable()
     titles = [t for t in data.keys() if t[:2] != '__']
-    if segments is None or (len(segments) == 0):
+    if segments is None or (len(segments) == 0) or (len(data['__date']) < 2):
         tbl.add_column('Date', [d.strftime('%d.%m.%y') for d in data['__date']], 'r')
         for t in titles:
             tbl.add_column(t, data[t], 'r')
         print(f"{data['__kind'].capitalize()}, {data['__unit']}")
         print(tbl)
     # segments
-    else:
+    elif len(data['__date']) > 1:
         angle_units = 'K,hrs/dt2' if data['__dv'] else 'K,hrs/dt'
         tbl.field_names = ['Row', 'Start', 'End', angle_units, 'Velocity', 'Final date', 'Lambda']
         d0, d1 = data['__date'][:2]
@@ -47,6 +47,9 @@ def dump(data: dict, segments=None):
 
 
 def plot(data: dict, segments=None):
+    if len(data['__date']) < 2:
+        print('Nothing to plot - extend date range.')
+        return
     fig, ax = plt.subplots()
     d0, d1 = data['__date'][:2]
     marker = '.' if len(data['__date']) > 1 and (d1 - d0).days > 1 else None
