@@ -287,6 +287,7 @@ class DataManager:
         self._start_date = get_start_date(self.issues).date()
 
     def _epic(self, issue):
+        """Epics is dict of tuples. Return Tuple(Epic key, Epic summary)"""
         return self.tree[issue.key]
 
     def _match(self, category):
@@ -308,7 +309,7 @@ class DataManager:
             return val == _project(issue)
 
         def epic(issue, val):
-            return val == self._epic(issue)
+            return val == self._epic(issue)[1]  # Match by summary
 
         assert category in locals()
         f = locals()[category]
@@ -321,6 +322,11 @@ class DataManager:
         return [t for t in income if matcher(t, value)]
 
     def _auto_filter(self, value):
+        """ Filter issues matched category value.
+        Category determined automatically by the value.
+        :param value: category value
+        :return: tuple (Category name, list of issues)
+        """
         # TODO: make join of filtered issues (OR - for case when value match some classes)
         if value in self.tags:
             return 'Tag', self._filter('tag', value)
@@ -328,7 +334,10 @@ class DataManager:
             return 'Component', self._filter('component', value)
         elif value in self.queues:
             return 'Queue', self._filter('queue', value)
-        # TODO: add projects and epics
+        elif value in self.projects:  # projects lookup by the index key
+            return self.projects[value], self._filter('project', self.projects[value])  # project match by name
+        elif value in self.epics:  # epics lookup by the index key
+            return self.epics[value], self._filter('epic', self.epics[value])  # epic match by summary
         return '', []
 
     def _update_categories(self):
@@ -382,8 +391,8 @@ class DataManager:
 
     @property
     def categories(self):
-        return list(set(self.tags) | set(self.queues) | set(self.components))
-        # TODO: add projects and epics
+        return list(set(self.tags) | set(self.queues) | set(self.components) |
+                    self.projects.keys() | self.epics.keys())
 
     @property
     def categories_info(self):
