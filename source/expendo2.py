@@ -5,19 +5,18 @@ from expendo_ui import read_config, save_config
 from data_engine import DataManager, issue_times, _cache_info
 from yandex_tracker_client import TrackerClient
 from alive_progress import alive_bar
-from exporters import dump, plot
+from exporters import dump, plot, csv
 from root_finder import TreeCache
 
 
-def export_data(engine, data, segments=None):
-    # TODO: exporter
+def export_data(engine, data, segments=None, nom_velocity=8.0):
     match engine:
         case 'dump':
-            dump(data, segments)
+            dump(data, segments, nom_velocity)
         case 'plot':
-            plot(data, segments)
+            plot(data, segments, nom_velocity)
         case 'copy':
-            print(f"Copied {data['__kind']}.")
+            csv(data, segments, nom_velocity)
 
 
 def main():
@@ -30,9 +29,9 @@ def main():
         nonlocal data_manager
         return data_manager.categories_info
 
-    def export_handler(engine):
+    def export_handler(engine, velocity):
         nonlocal data_manager
-        export_data(engine, data_manager.data, data_manager.segments)
+        export_data(engine, data_manager.data, data_manager.segments, velocity)
 
     def stat_info_handler():
         nonlocal data_manager

@@ -10,15 +10,27 @@ from dateutil.relativedelta import relativedelta
 # ---------------------------------------------------------
 
 
-def dump(data: dict, segments=None):
+def dump(data: dict, segments=None, nom_velocity=8.0):
+    caption, table = _build_table(data, segments, nom_velocity)
+    print(caption)
+    print(table)
+
+
+def csv(data: dict, segments=None, nom_velocity=8.0):
+    caption, table = _build_table(data, segments, nom_velocity)
+    pyperclip.copy(table.get_formatted_string('csv'))
+    print(f'"{caption}" CSV copied to clipboard.')
+
+
+def _build_table(data: dict, segments=None, nom_velocity=8.0):
     tbl = PrettyTable()
     titles = [t for t in data.keys() if t[:2] != '__']
+    caption = 'No data'
     if segments is None or (len(segments) == 0) or (len(data['__date']) < 2):
         tbl.add_column('Date', [d.strftime('%d.%m.%y') for d in data['__date']], 'r')
         for t in titles:
             tbl.add_column(t, data[t], 'r')
-        print(f"{data['__kind'].capitalize()}, {data['__unit']}")
-        print(tbl)
+        caption = f"{data['__kind'].capitalize()}, {data['__unit']}"
     # segments
     elif len(data['__date']) > 1:
         angle_units = 'K,hrs/dt2' if data['__dv'] else 'K,hrs/dt'
@@ -30,15 +42,15 @@ def dump(data: dict, segments=None):
                              data['__date'][s['x1']].strftime('%d.%m.%y'),
                              data['__date'][s['x2']].strftime('%d.%m.%y'),
                              f"{s['a']:.2f}",
-                             f"{s['a'] / ((d1 - d0).days * 8.0):.2f}"
+                             f"{s['a'] / ((d1 - d0).days * nom_velocity):.2f}"
                              if not data['__dv'] else 'N/A',
                              f"{(d0 + relativedelta(days=s['d0'] * (d1 - d0).days)).strftime('%d.%m.%y')}"
                              if (s['a'] < 0) and not data['__dv'] else 'N/A',
                              f"{s['lambda']:.2f}"])
             tbl.add_divider()
-        tbl.align = 'r'
-        print(f'Linear regression trends of {data["__kind"].capitalize()}:')
-        print(tbl)
+        caption = f'Linear regression trends of {data["__kind"].capitalize()}:'
+    tbl.align = 'r'
+    return caption, tbl
 
 
 # ---------------------------------------------------------
@@ -46,7 +58,7 @@ def dump(data: dict, segments=None):
 # ---------------------------------------------------------
 
 
-def plot(data: dict, segments=None):
+def plot(data: dict, segments=None, nom_velocity=8.0):
     if len(data['__date']) < 2:
         print('Nothing to plot - extend date range.')
         return
@@ -69,7 +81,7 @@ def plot(data: dict, segments=None):
                 if data['__dv']:
                     text = f"{abs(s['a']):.1f}h/dt2"
                 else:
-                    speed = (d1 - d0).days * 8
+                    speed = (d1 - d0).days * nom_velocity
                     text = f"{abs(s['a']):.1f}h/dt {abs(s['a']) / speed:.1f}v"
                 if (s['a'] < 0) and not data['__dv']:
                     final = d0 + relativedelta(

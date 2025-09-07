@@ -71,7 +71,7 @@ class ExpendoArgumentParser(argparse.ArgumentParser):
 # ---------------------------------------------------------
 
 
-set_tokens = ['mode', 'length', 'base', 'period', 'regression', 'factor']
+set_tokens = ['mode', 'length', 'base', 'period', 'regression', 'factor', 'velocity']
 ctrl_tokens = ['info', 'help', '?', 'h', 'quit', 'exit', 'q', 'simpleinfointernal', 'clear']
 engine_tokens = ['dump', 'plot', 'copy', 'csv']
 data_tokens = ['estimate', 'spent', 'original', 'burn']
@@ -99,6 +99,7 @@ help_str = ("General control commands:\n"
             "    up 'to' specified date or 'today'; 'today' will be aligned at future runs\n"
             "  regression residuals|differences|smooth - set trends scoring method, res default\n"
             "  factor [3-10] - set trends scoring factor, 5 default\n"
+            "  velocity - nominal velocity, 5.71 hrs/day default (8 hrs per day * 5/7 working days)\n"
             "Data commands:\n"
             "[exporter] [data] [dv] [trends] [for filter] [at|from|to period]\n"
             "  exporter: dump|plot|copy - how to output, default is previous or 'dump'\n"
@@ -156,7 +157,7 @@ def match_t(in_token, values, match_tolerance=0.5, n=2, lowered_penalty=0.8):
 
 class OptionsManager:
     _names = ['query', 'org', 'token', 'base', 'length', 'mode', 'p_from', 'p_to',
-              'regression', 'factor']
+              'regression', 'factor', 'velocity']
 
     def __init__(self):
         # RO values
@@ -171,6 +172,7 @@ class OptionsManager:
         self._p_to = 'today'
         self._regression = 'residuals'
         self._factor = 5
+        self._velocity = 8.0 * 5 / 7
         self._changed_flag = False
 
     @property
@@ -220,6 +222,10 @@ class OptionsManager:
     def p_to(self):
         return self._p_to
 
+    @property
+    def velocity(self):
+        return self._velocity
+
     @base.setter
     def base(self, value):
         match type(value):
@@ -247,6 +253,17 @@ class OptionsManager:
                 raise Exception("Unknown type of 'length' value")
         if n != self._length:
             self._length = n
+            self._changed_flag = True
+
+    @velocity.setter
+    def velocity(self, value):
+        # TODO: check velocity range
+        if type(value) in [builtins.str, builtins.int, builtins.float]:
+            n = float(value)
+        else:
+            raise Exception("Unknown type of 'velocity' value")
+        if abs(n - self._velocity) > 1e-3:
+            self._velocity = n
             self._changed_flag = True
 
     @mode.setter
@@ -335,7 +352,8 @@ class OptionsManager:
                 'p_from': self._p_from,
                 'p_to': self._p_to,
                 'regression': self._regression,
-                'factor': self._factor}
+                'factor': str(self._factor),
+                'velocity': f'{self._velocity:.2f}'}
 
     @property
     def changed(self):
@@ -350,7 +368,7 @@ class OptionsManager:
             sprint = f" ({self._length} days based {self._base.strftime('%d.%m.%y')})"
         return f"Settings: {self._mode.capitalize()}" \
                f"{sprint} at {self._p_from} to {self._p_to};\n" \
-               f"trend regression {self._regression}(C={self._factor})"
+               f"trend regression {self._regression}(C={self._factor}, Vnom={self._velocity:.2f})"
 
 
 class CmdParser:
@@ -370,7 +388,7 @@ class CmdParser:
         self.h_period = lambda *args, **kwargs: None  # period change handler, func(start, end, len, base)
         self.h_recalc = lambda *args, **kwargs: None  # data recalculate handler, func(data_kind, dv, categories)
         self.h_trends = lambda *args, **kwargs: None  # segments recalculate handler, func(method, c)
-        self.h_export = lambda *args, **kwargs: None  # data export handler, func(engine)
+        self.h_export = lambda *args, **kwargs: None  # data export handler, func(engine, velocity)
         self.h_cats = lambda *args, **kwargs: list()  # category list getter handler, func()
         self.h_cats_str = lambda *args, **kwargs: ''  # categories string info getter handler, func()
         self.h_stat_info = lambda *args, **kwargs: ''  # stat info getter handler, func()
@@ -472,7 +490,7 @@ class CmdParser:
                 self.h_trends(self.options.regression, self.options.factor)
             self.recalc_flag = False
         if not settings_changed:
-            self.h_export(engine=self.engine)
+            self.h_export(engine=self.engine, velocity=self.options.velocity)
 
     def parse_set_token(self):
         t = match_t(self.tokens[0], set_tokens)
@@ -505,6 +523,12 @@ class CmdParser:
                 try:
                     v = int(self.tokens.pop(0))
                     self.options.factor = v
+                except (ArgumentError, ValueError) as e:
+                    raise CommandError from e
+            case 'velocity':
+                try:
+                    v = float(self.tokens.pop(0))
+                    self.options.velocity = v
                 except (ArgumentError, ValueError) as e:
                     raise CommandError from e
             case 'regression':
