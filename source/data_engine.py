@@ -11,13 +11,11 @@ import logging
 from types import SimpleNamespace
 from prettytable import PrettyTable
 from segmentation import calculate_lambda, bottom_up_segmentation
-from alive_progress import alive_bar
 from natsort import natsorted
+from colorama import Fore, Back, Style
 
 _future_date = dt.datetime.now(dt.timezone.utc) + relativedelta(years=3)
 TODAY = dt.datetime.now(dt.timezone.utc).date()  # Today, actually
-
-_h_issue_by_key = lambda key: None
 
 
 # ===================================================
@@ -63,22 +61,6 @@ def issue_times(issue):
           if field['field'].id in ['spent', 'estimation', 'resolution', 'status']]
     sp.sort(key=lambda d: d['date'], reverse=True)
     return sp
-
-
-@lru_cache(maxsize=None)  # Caching access to YT
-def linked_issues(issue):
-    def _accessible(someone):
-        try:
-            x = someone.summary is not None
-        except Forbidden:
-            x = False
-        return x
-
-    """ Return list of issue linked subtasks """
-    return [link.object for link in issue.links
-            if link.type.id == 'subtask' and
-            dict(outward=link.type.inward, inward=link.type.outward)[link.direction] == 'Подзадача' and
-            _accessible(link.object)]
 
 
 @lru_cache(maxsize=None)  # Caching calculations and YT access
@@ -396,14 +378,18 @@ class DataManager:
 
     @property
     def categories_info(self):
-        info = [f'- Queues: {", ".join(self.queues)}' if len(self.queues) > 1 else None,
-                f'- Tags: {", ".join(self.tags)}' if len(self.tags) else None,
-                f'- Components: {", ".join(self.components)}' if len(self.components) else None]
+        divider = Style.RESET_ALL + ', ' + Back.LIGHTBLACK_EX
+        info = [f'- Queues: {Back.LIGHTBLACK_EX}{divider.join(self.queues)}{Style.RESET_ALL}'
+                if len(self.queues) > 1 else None,
+                f'- Tags: {Back.LIGHTBLACK_EX}{divider.join(self.tags)}{Style.RESET_ALL}'
+                if len(self.tags) else None,
+                f'- Components: {Back.LIGHTBLACK_EX}{divider.join(self.components)}{Style.RESET_ALL}'
+                if len(self.components) else None]
         if len(self.projects) > 1:
-            p_list = [f'{key}: {val}' for key, val in self.projects.items()]
+            p_list = [f'{Back.LIGHTBLACK_EX}{key}: {val}{Style.RESET_ALL}' for key, val in self.projects.items()]
             info.append(f'- Projects: {", ".join(p_list)}')
         if len(self.epics) > 1:
-            e_list = [f'{key}: {val}' for key, val in self.epics.items()]
+            e_list = [f'{Back.LIGHTBLACK_EX}{key}: {val}{Style.RESET_ALL}' for key, val in self.epics.items()]
             info.append(f'- Root epics: {", ".join(e_list)}')
         info = [s for s in info if s is not None]
         return '\n'.join(info) if len(info) else '- Not found.'

@@ -7,6 +7,7 @@ from yandex_tracker_client import TrackerClient
 from alive_progress import alive_bar
 from exporters import dump, plot, csv
 from root_finder import TreeCache
+from colorama import init as init_color
 
 
 def export_data(engine, data, segments=None, nom_velocity=8.0):
@@ -49,6 +50,8 @@ def main():
                         datefmt='%d/%m/%y %H:%M:%S',
                         level=logging.DEBUG if cl_args.debug else logging.ERROR)
     logging.info('Started with arguments: %s', vars(cl_args))
+
+    init_color(autoreset=True)
 
     # load ini-file
 

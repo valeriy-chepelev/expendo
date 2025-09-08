@@ -10,6 +10,8 @@ import logging
 import unicodedata
 import builtins
 
+from colorama import Fore, Back, Style
+
 
 def normalize_text(text):
     return unicodedata.normalize('NFC', text.strip())
