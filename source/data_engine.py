@@ -243,7 +243,7 @@ class DataManager:
     def __init__(self, issues, tree):
         super(DataManager, self).__init__()
         # static data
-        self.issues = issues  # issues list
+        self.issues = issues  # source issues list
         self.tree = tree  # issues epics info
         self._stat = ''  # statistical data string
         self._start_date = TODAY
@@ -337,6 +337,23 @@ class DataManager:
         for val in exclude_values:
             issues = self._select_sub(issues, self._category(val), val)
         return name, issues
+
+    # ===============================================================
+    #          FUTURES: WORKING WITH GROUPS
+    # ===============================================================
+
+    # 1. define category type like 'group'
+    #    'group' should be described as op_code [union|intersect] and two lists:
+    #    - list of categories to be operated
+    #    - list of categories all to be excluded
+    # 2. add commands to create and delete groups, include groups to clear command
+    #    command draft: union name for c c c exclude c c c
+    # 2. create parser for reach cases like union(union(), exclude (intersect()))
+    #    to define proper operation sequence and aware loops
+    # 3. create visualization engine to show rich cases (like draw tree by ascii)
+    # 4. rewrite filters to work with groups
+
+    # ==================== FUTURES END ==============================
 
     def _update_categories(self):
         # collect categories info, called ones from constructor
