@@ -293,10 +293,11 @@ class DataManager:
         def epic(issue, val):
             return val == self._epic(issue)[1]  # Match by summary
 
-        assert category in locals()
-        f = locals()[category]
-        assert callable(f)
-        return f
+        if category in locals():
+            f = locals()[category]
+            if callable(f):
+                return f
+        return lambda x, y: True
 
     def _select_add(self, category, value, issues=None):
         matcher = self._match(category)
@@ -320,7 +321,7 @@ class DataManager:
             return 'project'
         if value in self.epics:
             return 'epic'
-        return ''
+        return 'total'
 
     def _auto_filter(self, include_value, exclude_values):
         """ Filter issues matched category value.
@@ -473,7 +474,8 @@ class DataManager:
             self._data.update({key: [_calculator(data_kind, issues, date) for date in self._dates]})
         # total
         if len(categories) == 0:
-            self._data.update({'TOTAL': [_calculator(data_kind, self.issues, date) for date in self._dates]})
+            _, issues = self._auto_filter('total', exclusions)
+            self._data.update({'TOTAL': [_calculator(data_kind, issues, date) for date in self._dates]})
         # diff
         if dv:
             for key, values in self._data.items():
