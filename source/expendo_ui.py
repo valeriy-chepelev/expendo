@@ -450,8 +450,6 @@ class CmdParser:
                     case 'exit' | 'quit' | 'q':
                         sys.exit(0)
                     case 'info':
-                        f_info = ', '.join(self.filter)
-                        ex_info = ', '.join(self.exclude)
                         print('Issues: ' + Fore.LIGHTCYAN_EX + self.options.query + Fore.RESET)
                         print(self.h_stat_info())
                         print(self._colorized_cat_info())
