@@ -99,7 +99,7 @@ def main():
             bar()
 
     tree = TreeCache()
-    with alive_bar(len(issues), title='Scanning issues tree', theme='classic') as bar:
+    with alive_bar(len(issues), title='Searching root epics', theme='classic') as bar:
         for issue in issues:
             tree.add(issue)
             bar()

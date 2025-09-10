@@ -4,7 +4,6 @@ Data Engine module for expendo2 project
 """
 
 from functools import lru_cache
-from yandex_tracker_client.exceptions import Forbidden
 import datetime as dt
 from dateutil.relativedelta import relativedelta
 import logging
@@ -298,29 +297,45 @@ class DataManager:
         assert callable(f)
         return f
 
-    def _filter(self, category, value, issues=None):
+    def _select_add(self, category, value, issues=None):
         matcher = self._match(category)
-        income = self.issues if issues is None else issues
-        return [t for t in income if matcher(t, value)]
+        result = {t for t in self.issues if matcher(t, value)}
+        if issues is not None:
+            result.update(issues)
+        return list(result)
 
-    def _auto_filter(self, value):
+    def _select_sub(self, issues, category, value):
+        matcher = self._match(category)
+        return [t for t in issues if not matcher(t, value)]
+
+    def _category(self, value):
+        if value in self.tags:
+            return 'tag'
+        if value in self.components:
+            return 'component'
+        if value in self.queues:
+            return 'queue'
+        if value in self.projects:
+            return 'project'
+        if value in self.epics:
+            return 'epic'
+        return ''
+
+    def _auto_filter(self, include_value, exclude_values):
         """ Filter issues matched category value.
         Category determined automatically by the value.
-        :param value: category value
+        :param include_value: category value
         :return: tuple (Category name, list of issues)
         """
         # TODO: make join of filtered issues (OR - for case when value match some classes)
-        if value in self.tags:
-            return 'Tag', self._filter('tag', value)
-        elif value in self.components:
-            return 'Component', self._filter('component', value)
-        elif value in self.queues:
-            return 'Queue', self._filter('queue', value)
-        elif value in self.projects:  # projects lookup by the index key
-            return self.projects[value], self._filter('project', self.projects[value])  # project match by name
-        elif value in self.epics:  # epics lookup by the index key
-            return self.epics[value], self._filter('epic', self.epics[value])  # epic match by summary
-        return '', []
+        issues = self._select_add(name := self._category(include_value), include_value)
+        if name == 'project':
+            name = self.projects[include_value]
+        if name == 'epic':
+            name = self.epics[include_value]
+        for val in exclude_values:
+            issues = self._select_sub(issues, self._category(val), val)
+        return name, issues
 
     def _update_categories(self):
         # collect categories info, called ones from constructor
@@ -365,8 +380,8 @@ class DataManager:
 
         tbl = PrettyTable()
         tbl.field_names = ['Type', 'Count', 'Open', 'Estimate', 'Spent', 'Original', 'Burned']
-        tbl.add_row(row('Tasks', self._filter('issue_type', 'task')))
-        tbl.add_row(row('Bugs', self._filter('issue_type', 'bug')))
+        tbl.add_row(row('Tasks', self._select_add('issue_type', 'task')))
+        tbl.add_row(row('Bugs', self._select_add('issue_type', 'bug')))
         tbl.add_row(row('Total', self.issues))
         tbl.align = 'r'
         self._stat = tbl.get_string()
@@ -378,19 +393,19 @@ class DataManager:
 
     @property
     def categories_info(self):
-        divider = Style.RESET_ALL + ', ' + Back.LIGHTBLACK_EX
-        info = [f'- Queues: {Back.LIGHTBLACK_EX}{divider.join(self.queues)}{Style.RESET_ALL}'
+        divider = Style.RESET_ALL + ', ' + Fore.GREEN
+        info = [f'- Queues: {Fore.GREEN}{divider.join(self.queues)}{Style.RESET_ALL}'
                 if len(self.queues) > 1 else None,
-                f'- Tags: {Back.LIGHTBLACK_EX}{divider.join(self.tags)}{Style.RESET_ALL}'
+                f'- Tags: {Fore.GREEN}{divider.join(self.tags)}{Style.RESET_ALL}'
                 if len(self.tags) else None,
-                f'- Components: {Back.LIGHTBLACK_EX}{divider.join(self.components)}{Style.RESET_ALL}'
+                f'- Components: {Fore.GREEN}{divider.join(self.components)}{Style.RESET_ALL}'
                 if len(self.components) else None]
         if len(self.projects) > 1:
-            p_list = [f'{Back.LIGHTBLACK_EX}{key}: {val}{Style.RESET_ALL}' for key, val in self.projects.items()]
+            p_list = [f'{Fore.GREEN}{key}{Style.RESET_ALL}: {val}' for key, val in self.projects.items()]
             info.append(f'- Projects: {", ".join(p_list)}')
         if len(self.epics) > 1:
-            e_list = [f'{Back.LIGHTBLACK_EX}{key}: {val}{Style.RESET_ALL}' for key, val in self.epics.items()]
-            info.append(f'- Root epics: {", ".join(e_list)}')
+            e_list = [f'{Fore.GREEN}{key}{Style.RESET_ALL}: {val}' for key, val in self.epics.items()]
+            info.append(f'- Root epics: {", ".join(e_list)}{Style.RESET_ALL}')
         info = [s for s in info if s is not None]
         return '\n'.join(info) if len(info) else '- Not found.'
 
@@ -448,11 +463,11 @@ class DataManager:
     def data(self):
         return self._data
 
-    def recalc(self, data_kind, dv, categories):
+    def recalc(self, data_kind, dv, categories, exclusions):
         self._data = dict()
         # calculation
         for cat in categories:
-            key, issues = self._auto_filter(cat)
+            key, issues = self._auto_filter(cat, exclusions)
             key += f': {cat}'
             self._data.update({key: [_calculator(data_kind, issues, date) for date in self._dates]})
         # total

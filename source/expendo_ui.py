@@ -79,18 +79,17 @@ engine_tokens = ['dump', 'plot', 'copy', 'csv']
 data_tokens = ['estimate', 'spent', 'original', 'burn']
 dv_tokens = ['dv']
 trend_tokens = ['trends']
-filter_tokens = ['for']
+filter_tokens = ['for', 'exclude']
 mode_tokens = ['daily', 'sprint']
 regression_tokens = ['residuals', 'differences', 'smooth']
 period_tokens = ['today', 'now', 'yesterday', 'week', 'sprint', 'month', 'quarter', 'year', 'all', 'full']
 date_tokens = ['today', 'now', 'yesterday']
 period_bound_tokens = ['at', 'from', 'to']
 
-# TODO: add command to exclude categories ('clear' command will return)
 help_str = ("General control commands:\n"
             "  help, ?, h - this description\n"
             "  quit, exit - quits\n"
-            "  clear - reset selected categories (see 'filter' below)\n"
+            "  clear - reset selected categories (see 'for/exclude' below)\n"
             "  info or just Enter - common stat and settings info\n"
             "Settings commands (stored to .ini):\n"
             "  mode sprint|daily - set time mode\n"
@@ -103,12 +102,13 @@ help_str = ("General control commands:\n"
             "  factor [3-10] - set trends scoring factor, 5 default\n"
             "  velocity - nominal velocity, 5.71 hrs/day default (8 hrs per day * 5/7 working days)\n"
             "Data commands:\n"
-            "[exporter] [data] [dv] [trends] [for filter] [at|from|to period]\n"
+            "[exporter] [data] [dv] [trends] [for categories] [exclude categories] [at|from|to period]\n"
             "  exporter: dump|plot|copy - how to output, default is previous or 'dump'\n"
             "  data: estimate|spent|original|burn - what to output, default is previous or 'estimate'\n"
             "  dv: type 'dv' to make data derivative by time scale, default No\n"
             "  trends: type 'trends' to calculate linear regressions, default No\n"
-            "  filter: list of data categories to sort (tags, queues, etc), type info to show categories\n"
+            "  for: list of data categories to sort (tags, queues, etc), type info to show categories\n"
+            "  exclude: list of data categories, any to be excluded from calculations\n"
             "  period: data time range, format as mentioned above:\n"
             "    dd.mm.yy|week|sprint|month|quarter|year|all [to dd.mm.yy|today]\n"
             "Example:\n"
@@ -378,7 +378,8 @@ class CmdParser:
     def __init__(self):
         self.options = OptionsManager()
 
-        self.filter = list()
+        self.filter = list()  # list of search categories
+        self.exclude = list()  # list of excluded categories
         self.recalc_flag = True
         self.data = 'estimate'
         self.dv = False
@@ -387,13 +388,20 @@ class CmdParser:
         self.tokens = None
 
         # === handlers ===
-        self.h_period = lambda *args, **kwargs: None  # period change handler, func(start, end, len, base)
-        self.h_recalc = lambda *args, **kwargs: None  # data recalculate handler, func(data_kind, dv, categories)
-        self.h_trends = lambda *args, **kwargs: None  # segments recalculate handler, func(method, c)
-        self.h_export = lambda *args, **kwargs: None  # data export handler, func(engine, velocity)
-        self.h_cats = lambda *args, **kwargs: list()  # category list getter handler, func()
-        self.h_cats_str = lambda *args, **kwargs: ''  # categories string info getter handler, func()
-        self.h_stat_info = lambda *args, **kwargs: ''  # stat info getter handler, func()
+        # period change handler, func(start, end, len, base)
+        self.h_period = lambda *args, **kwargs: None
+        # data recalculate handler, func(data_kind, dv, categories, exclusions)
+        self.h_recalc = lambda *args, **kwargs: None
+        # segments recalculate handler, func(method, c)
+        self.h_trends = lambda *args, **kwargs: None
+        # data export handler, func(engine, velocity)
+        self.h_export = lambda *args, **kwargs: None
+        # category list getter handler, func()
+        self.h_cats = lambda *args, **kwargs: list()
+        # categories string info getter handler, func()
+        self.h_cats_str = lambda *args, **kwargs: ''
+        # stat info getter handler, func()
+        self.h_stat_info = lambda *args, **kwargs: ''
 
     def parse(self, command: str):
         sh = shlex.shlex(command)
@@ -422,16 +430,22 @@ class CmdParser:
                         sys.exit(0)
                     case 'info':
                         f_info = ', '.join(self.filter)
+                        ex_info = ', '.join(self.exclude)
                         print('\n'.join([self.options.query,
                                          self.h_stat_info(),
                                          self.options.get_settings_str(),
-                                         'Categories' + (f' (selected {f_info}):' if len(f_info) else ':'),
-                                         self.h_cats_str(),
-                                         info_prompt]))
+                                         'Categories:',
+                                         self.h_cats_str()]))
+                        if len(f_info):
+                            print(f' Selected {f_info}')
+                        if len(ex_info):
+                            print(f' Excluded {ex_info}')
+                        print(info_prompt)
                     case 'simpleinfointernal':
                         print(info_prompt)
                     case 'clear':
                         self.filter = []
+                        self.exclude = []
                         self.recalc_flag = True
                 return
             # check global settings
@@ -457,11 +471,14 @@ class CmdParser:
                 new_trends = True
                 self.tokens.pop(0)
             # check categories
-            if len(self.tokens) and match_t(self.tokens[0], filter_tokens):
-                self.tokens.pop(0)
+            if len(self.tokens) and (t := match_t(self.tokens[0], filter_tokens)):
+                self.tokens.pop(0)  # pop token only if it matches
                 new_filter = self.parse_filter()
-                if self.filter != new_filter and len(new_filter):
+                if self.filter != new_filter and len(new_filter) and t == 'for':
                     self.filter = new_filter
+                    self.recalc_flag = True
+                if self.exclude != new_filter and len(new_filter) and t == 'exclude':
+                    self.exclude = new_filter
                     self.recalc_flag = True
             # check period
             if len(self.tokens) and match_t(self.tokens[0], period_bound_tokens):
@@ -487,7 +504,8 @@ class CmdParser:
         if self.recalc_flag:
             self.h_recalc(data_kind=self.data,
                           dv=self.dv,
-                          categories=self.filter)
+                          categories=self.filter,
+                          exclusions=self.exclude)
             if self.trends:
                 self.h_trends(self.options.regression, self.options.factor)
             self.recalc_flag = False
