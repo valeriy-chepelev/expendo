@@ -287,7 +287,8 @@ class DataManager:
             return val == _queue(issue)
 
         def project(issue, val):
-            return val == _project(issue)
+            # DONE: BUG! val is now a project index in self.projects dict, but _project return name
+            return self.projects[val] == _project(issue)
 
         def epic(issue, val):
             return val == self._epic(issue)[1]  # Match by summary
