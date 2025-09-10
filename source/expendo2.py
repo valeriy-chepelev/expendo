@@ -26,10 +26,6 @@ def main():
         nonlocal data_manager
         return data_manager.categories
 
-    def cat_string_handler():
-        nonlocal data_manager
-        return data_manager.categories_info
-
     def export_handler(engine, velocity):
         nonlocal data_manager
         export_data(engine, data_manager.data, data_manager.segments, velocity)
@@ -38,6 +34,9 @@ def main():
         nonlocal data_manager
         return data_manager.stat_info
 
+    def ext_cat_info_handler():
+        nonlocal data_manager
+        return data_manager.ext_cat_info
     # Init and parse cl arguments
 
     cl_args = ExpendoArgumentParser().parse_args()
@@ -51,7 +50,7 @@ def main():
                         level=logging.DEBUG if cl_args.debug else logging.ERROR)
     logging.info('Started with arguments: %s', vars(cl_args))
 
-    init_color(autoreset=True)
+    init_color()
 
     # load ini-file
 
@@ -116,9 +115,9 @@ def main():
     cmd_parser.h_recalc = data_manager.recalc
     cmd_parser.h_trends = data_manager.update_segments
     cmd_parser.h_cats = categories_handler
-    cmd_parser.h_cats_str = cat_string_handler
     cmd_parser.h_export = export_handler
     cmd_parser.h_stat_info = stat_info_handler
+    cmd_parser.h_ext_cats_info = ext_cat_info_handler
 
     # -------------------------------------
     # Main command cycle

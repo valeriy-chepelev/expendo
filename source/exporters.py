@@ -97,6 +97,7 @@ def plot(data: dict, segments=None, nom_velocity=8.0):
     plt.grid()
     plt.legend()
     # TODO: add window title
+    # fig.get_current_fig_manager().set_window_title("My Custom Title")
     plt.title(data['__kind'].capitalize())
     fig.autofmt_xdate()
     plt.draw()

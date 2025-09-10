@@ -115,7 +115,9 @@ help_str = ("General control commands:\n"
             "  plot estimate for techdebt at all - show's graph of summary estimate\n"
             "    for category 'techdebt' at all project(s) duration up to today.\n")
 
-info_prompt = "Enter ? to commands list (i.e. 'plot estimate'), CR to statistic, or Q to quit."
+info_prompt = (f"Enter {Fore.LIGHTGREEN_EX}?{Fore.RESET} to commands,"
+               f" {Fore.LIGHTGREEN_EX}CR{Fore.RESET} to statistic,"
+               f" {Fore.LIGHTGREEN_EX}Q{Fore.RESET} to quit.")
 
 
 class CommandError(BaseException):
@@ -368,9 +370,9 @@ class OptionsManager:
         sprint = ""
         if self._mode == "sprint":
             sprint = f" ({self._length} days based {self._base.strftime('%d.%m.%y')})"
-        return f"Settings: {self._mode.capitalize()}" \
-               f"{sprint} at {self._p_from} to {self._p_to};\n" \
-               f"trend regression {self._regression}(C={self._factor}, Vnom={self._velocity:.2f})"
+        return f"{self._mode}" \
+               f"{sprint} at {self._p_from} to {self._p_to}; " \
+               f"trend {self._regression} (C={self._factor}, Vnom={self._velocity:.2f})"
 
 
 class CmdParser:
@@ -398,10 +400,29 @@ class CmdParser:
         self.h_export = lambda *args, **kwargs: None
         # category list getter handler, func()
         self.h_cats = lambda *args, **kwargs: list()
-        # categories string info getter handler, func()
-        self.h_cats_str = lambda *args, **kwargs: ''
+        # categories extended info getter handler, func()
+        self.h_ext_cats_info = lambda *args, **kwargs: dict()
         # stat info getter handler, func()
         self.h_stat_info = lambda *args, **kwargs: ''
+
+    def _colorized_cat_info(self):
+        def color(k):
+            if k in self.exclude:
+                return Fore.RED
+            if k in self.filter:
+                return Fore.LIGHTCYAN_EX
+            return Fore.LIGHTGREEN_EX
+
+        cats = self.h_ext_cats_info()
+        s = 'Categories:'
+        for cat_class in cats.keys():
+            s += f'\n  -{cat_class}: '
+            s += ', '.join([f'{color(key)}{key}{Fore.RESET}' +
+                            ('' if value is None else f': {value}')
+                            for key, value in cats[cat_class]])
+        if len(cats) == 0:
+            s += ' not found'
+        return s
 
     def parse(self, command: str):
         sh = shlex.shlex(command)
@@ -431,17 +452,17 @@ class CmdParser:
                     case 'info':
                         f_info = ', '.join(self.filter)
                         ex_info = ', '.join(self.exclude)
-                        print('\n'.join([self.options.query,
-                                         self.h_stat_info(),
-                                         self.options.get_settings_str(),
-                                         'Categories:',
-                                         self.h_cats_str()]))
-                        if len(f_info):
-                            print(f' Selected {f_info}')
-                        if len(ex_info):
-                            print(f' Excluded {ex_info}')
+                        print('Issues: ' + Fore.LIGHTCYAN_EX + self.options.query + Fore.RESET)
+                        print(self.h_stat_info())
+                        print(self._colorized_cat_info())
+                        print('Settings:' + Fore.LIGHTCYAN_EX,
+                              self.engine, self.data,
+                              self.options.get_settings_str() + Fore.RESET, sep=' ')
                         print(info_prompt)
                     case 'simpleinfointernal':
+                        print('Settings:' + Fore.LIGHTCYAN_EX,
+                              self.engine, self.data,
+                              self.options.get_settings_str() + Fore.RESET, sep=' ')
                         print(info_prompt)
                     case 'clear':
                         self.filter = []

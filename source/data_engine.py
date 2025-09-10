@@ -11,7 +11,6 @@ from types import SimpleNamespace
 from prettytable import PrettyTable
 from segmentation import calculate_lambda, bottom_up_segmentation
 from natsort import natsorted
-from colorama import Fore, Back, Style
 
 _future_date = dt.datetime.now(dt.timezone.utc) + relativedelta(years=3)
 TODAY = dt.datetime.now(dt.timezone.utc).date()  # Today, actually
@@ -394,22 +393,19 @@ class DataManager:
                     self.projects.keys() | self.epics.keys())
 
     @property
-    def categories_info(self):
-        divider = Style.RESET_ALL + ', ' + Fore.GREEN
-        info = [f'- Queues: {Fore.GREEN}{divider.join(self.queues)}{Style.RESET_ALL}'
-                if len(self.queues) > 1 else None,
-                f'- Tags: {Fore.GREEN}{divider.join(self.tags)}{Style.RESET_ALL}'
-                if len(self.tags) else None,
-                f'- Components: {Fore.GREEN}{divider.join(self.components)}{Style.RESET_ALL}'
-                if len(self.components) else None]
+    def ext_cat_info(self):
+        r = dict()
+        if len(self.queues) > 1:
+            r.update({'Queues': [(q, None) for q in self.queues]})
+        if len(self.tags):
+            r.update({'Tags': [(t, None) for t in self.tags]})
+        if len(self.components):
+            r.update({'Components': [(c, None) for c in self.components]})
         if len(self.projects) > 1:
-            p_list = [f'{Fore.GREEN}{key}{Style.RESET_ALL}: {val}' for key, val in self.projects.items()]
-            info.append(f'- Projects: {", ".join(p_list)}')
+            r.update({'Projects': [(key, val) for key, val in self.projects.items()]})
         if len(self.epics) > 1:
-            e_list = [f'{Fore.GREEN}{key}{Style.RESET_ALL}: {val}' for key, val in self.epics.items()]
-            info.append(f'- Root epics: {", ".join(e_list)}{Style.RESET_ALL}')
-        info = [s for s in info if s is not None]
-        return '\n'.join(info) if len(info) else '- Not found.'
+            r.update({'Root epics': [(key, val) for key, val in self.epics.items()]})
+        return r
 
     @property
     def stat_info(self):
