@@ -339,7 +339,7 @@ class DataManager:
         return name, issues
 
     # ===============================================================
-    #          FUTURES: WORKING WITH GROUPS
+    # TODO:          FUTURES: WORKING WITH GROUPS
     # ===============================================================
 
     # 1. define category type like 'group'

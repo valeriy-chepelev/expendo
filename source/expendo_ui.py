@@ -38,32 +38,40 @@ def _check_len_range(val):
 
 
 class ExpendoArgumentParser(argparse.ArgumentParser):
-    # TODO: ArgParser requires update of 'period' arguments
     def __init__(self):
         super(ExpendoArgumentParser, self).__init__(
             description='Expendo v.2.0 - Yandex Tracker stat crawler by VCh.',
-            epilog='Tracker connection settings and params in "expendo2.ini".')
+            epilog='Settings and params to be stored in "expendo2.ini".')
         self.add_argument('query', type=str, nargs='?', default=None,
                           help='issues query, default last call query')
-        self.add_argument('-m', '--mode', type=str, choices=['daily', 'sprint'],
-                          help='time span mode')
-        self.add_argument('--length', type=_check_len_range,
-                          help='sprint length')
-        self.add_argument('--base', type=lambda s: dt.datetime.strptime(s, '%d.%m.%y').date(),
-                          help='sprint base date [dd.mm.yy]')
-
-        self.add_argument('--period', type=str, dest='p_from',
-                          choices=["week", "sprint", "month", "quarter", "year", "all"],
-                          help='data period')
-
-        self.add_argument('--to', dest='p_to',
-                          type=lambda s: dt.datetime.strptime(s, '%d.%m.%y').date(),
-                          help='data period final date [dd.mm.yy]')
-
+        # access to Tracker
         self.add_argument('--token', type=str,
                           help='Tracker access token')
         self.add_argument('--org', type=str,
                           help='Tracker organisation id')
+        # mode and sprint
+        self.add_argument('--mode', type=str, choices=['daily', 'sprint'],
+                          help='time span mode')
+        self.add_argument('--length', type=_check_len_range,
+                          help='sprint length, days')
+        self.add_argument('--base', type=lambda s: dt.datetime.strptime(s, '%d.%m.%y').date(),
+                          help='sprint base date [dd.mm.yy]')
+        # time range
+        self.add_argument('--period', type=str, dest='p_from',
+                          choices=["week", "sprint", "month", "quarter", "year", "all", "yesterday", "today"],
+                          help='data period range')
+        self.add_argument('--to', type=str, dest='p_to',
+                          choices=["yesterday", "today"],
+                          help='data period final')
+        # trends
+        self.add_argument('--trend', type=str, dest='regression',
+                          choices=["residuals", "differences", "smooth"],
+                          help='trends scoring method')
+        self.add_argument('--factor', type=int,
+                          help='trends scoring factor')
+        self.add_argument('--velocity', type=float,
+                          help='nominal team velocity, hrs/day')
+        # debug
         self.add_argument('--debug', default=False, action='store_true',
                           help='logging in debug mode (include tracker and issues info)')
 
@@ -170,7 +178,7 @@ class OptionsManager:
         self._token = ''
         # RW values
         self._base = dt.date(2025, 8, 20)
-        self._length = 1
+        self._length = 14
         self._mode = 'daily'
         self._p_from = 'today'
         self._p_to = 'today'
