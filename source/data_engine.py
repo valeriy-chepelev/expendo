@@ -290,7 +290,13 @@ class DataManager:
             return self.projects[val] == _project(issue)
 
         def epic(issue, val):
-            return val == self._epic(issue)[1]  # Match by summary
+            # DONE: BUG val is an epic key number, not a summary, _epic()[0] is a full key or 0 if no-epic
+            e = self._epic(issue)[0]
+            try:
+                key = e[str(e).index('-') + 1:]
+            except ValueError:
+                key = e
+            return val == key  # Match by key, not summary
 
         if category in locals():
             f = locals()[category]

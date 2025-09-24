@@ -40,7 +40,7 @@ def _check_len_range(val):
 class ExpendoArgumentParser(argparse.ArgumentParser):
     def __init__(self):
         super(ExpendoArgumentParser, self).__init__(
-            description='Expendo v.2.0 - Yandex Tracker stat crawler by VCh.',
+            description='Expendo v.2.1 - Yandex Tracker stat crawler by VCh.',
             epilog='Settings and params to be stored in "expendo2.ini".')
         self.add_argument('query', type=str, nargs='?', default=None,
                           help='issues query, default last call query')
