@@ -33,8 +33,9 @@ def _build_table(data: dict, segments=None, nom_velocity=8.0):
         caption = f"{data['__kind'].capitalize()}, {data['__unit']}"
     # segments
     elif len(data['__date']) > 1:
-        angle_units = 'K,hrs/dt2' if data['__dv'] else 'K,hrs/dt'
-        tbl.field_names = ['Row', 'Start', 'End', angle_units, 'Velocity', 'Final date', 'Lambda']
+        unit_val = 'issues' if data['__unit'][0] == 'i' else 'hrs'
+        unit_time = 'dt2' if data['__dv'] else 'dt'
+        tbl.field_names = ['Row', 'Start', 'End', f'K,{unit_val}/{unit_time}', 'Velocity', 'Final date', 'Lambda']
         d0, d1 = data['__date'][:2]
         for idx, row in enumerate(segments):
             for s in row:
@@ -43,9 +44,9 @@ def _build_table(data: dict, segments=None, nom_velocity=8.0):
                              data['__date'][s['x2']].strftime('%d.%m.%y'),
                              f"{s['a']:.2f}",
                              f"{s['a'] / ((d1 - d0).days * nom_velocity):.2f}"
-                             if not data['__dv'] else 'N/A',
+                             if not (data['__dv'] or (data['__unit'][0] == 'i')) else 'N/A',
                              f"{(d0 + relativedelta(days=s['d0'] * (d1 - d0).days)).strftime('%d.%m.%y')}"
-                             if (s['a'] < 0) and not data['__dv'] else 'N/A',
+                             if (s['a'] < 0) and not (data['__dv'] or (data['__unit'][0] == 'i')) else 'N/A',
                              f"{s['lambda']:.2f}"])
             tbl.add_divider()
         caption = f'Linear regression trends of {data["__kind"].capitalize()}:'
@@ -78,15 +79,18 @@ def plot(data: dict, segments=None, nom_velocity=8.0):
                 ax.plot(x, y, color='k', linewidth=1, linestyle='dashed', marker='|')
                 # annotation
                 mid = x[0] + relativedelta(days=(x[-1] - x[0]).days // 2)
-                if data['__dv']:
-                    text = f"{abs(s['a']):.1f}h/dt2"
-                else:
+
+                unit_val = data['__unit'][0]
+                unit_time = 'dt2'if data['__dv'] else 'dt'
+                text = f"{abs(s['a']):.1f}{unit_val}/{unit_time}"
+
+                if not (data['__dv'] or (unit_val == 'i')):
                     speed = (d1 - d0).days * nom_velocity
-                    text = f"{abs(s['a']):.1f}h/dt {abs(s['a']) / speed:.1f}v"
-                if (s['a'] < 0) and not data['__dv']:
-                    final = d0 + relativedelta(
-                        days=s['d0'] * (d1 - d0).days)
-                    text += f'\n{final:%d.%m.%y}'
+                    text += f" {abs(s['a']) / speed:.1f}v"
+                    if s['a'] < 0:
+                        final = d0 + relativedelta(
+                            days=s['d0'] * (d1 - d0).days)
+                        text += f'\n{final:%d.%m.%y}'
                 plt.text(mid, sum(y) // 2, text,
                          bbox={'facecolor': 'lightgray', 'edgecolor': 'none', 'alpha': 0.7, 'pad': 2})
     # formatting

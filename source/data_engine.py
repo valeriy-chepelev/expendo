@@ -201,11 +201,29 @@ def burned(issues, date):
                 if (e := issue_original(issue)).valuable and e.finished and (e.end <= date)])
 
 
+def succeed(issues, date):
+    return len([0 for issue in issues
+                if (e := issue_original(issue)).valuable and e.finished and (e.end <= date)])
+
+
+def created(issues, date):
+    return len([0 for issue in issues
+                if issue_original(issue).created <= date])
+
+
+def wip(issues, date):
+    return len([0 for issue in issues
+                if (s := issue_original(issue)).start <= date <= s.end])
+
+
 def _calculator(data_kind, issues, date):
     _estimate_ = estimate
     _spent_ = spent
     _original_ = original
     _burn_ = burned
+    _succeed_ = succeed
+    _created_ = created
+    _wip_ = wip
     f = locals()[f'_{data_kind}_']
     assert callable(f)
     return f(issues, date)
@@ -221,7 +239,7 @@ NEGATIVE = -1.0
 
 def slope(kind: str) -> float:
     match kind.lower():
-        case 'spent' | 'burn':
+        case 'spent' | 'burn' | 'succeed' | 'created':
             s = POSITIVE
         case 'estimate' | 'original':
             s = NEGATIVE
@@ -258,13 +276,13 @@ class DataManager:
         self._data = dict()
         self._segments = []
         # updates
+        print('Calculating total start date...')
+        self._start_date = get_start_date(self.issues).date()
         print('Calculating statistics...')
         self._update_stat()
         print('Updating categories...')
         self._update_categories()
         _cache_info()
-        print('Calculating total start date...')
-        self._start_date = get_start_date(self.issues).date()
 
     def _epic(self, issue):
         """Epics is dict of tuples. Return Tuple(Epic key, Epic summary)"""
@@ -408,7 +426,7 @@ class DataManager:
         tbl.add_row(row('Bugs', self._select_add('issue_type', 'bug')))
         tbl.add_row(row('Total', self.issues))
         tbl.align = 'r'
-        self._stat = tbl.get_string()
+        self._stat = tbl.get_string() + f'\nIssues since {self._start_date:%d.%m.%Y}'
 
     @property
     def categories(self):
@@ -506,6 +524,8 @@ class DataManager:
                            '__kind': data_kind,
                            '__unit': 'hrs/dt' if dv else 'hrs',
                            '__dv': dv})
+        if data_kind in ['succeed', 'created', 'wip']:
+            self._data.update({'__unit': 'issues/dt' if dv else 'issues'})
         self._segments = []
 
     @property

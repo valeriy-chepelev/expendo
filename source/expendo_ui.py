@@ -40,7 +40,7 @@ def _check_len_range(val):
 class ExpendoArgumentParser(argparse.ArgumentParser):
     def __init__(self):
         super(ExpendoArgumentParser, self).__init__(
-            description='Expendo v.2.1 - Yandex Tracker stat crawler by VCh.',
+            description='Expendo v.2.2 - Yandex Tracker stat crawler by VCh.',
             epilog='Settings and params to be stored in "expendo2.ini".')
         self.add_argument('query', type=str, nargs='?', default=None,
                           help='issues query, default last call query')
@@ -84,7 +84,7 @@ class ExpendoArgumentParser(argparse.ArgumentParser):
 set_tokens = ['mode', 'length', 'base', 'period', 'regression', 'factor', 'velocity']
 ctrl_tokens = ['info', 'help', '?', 'h', 'quit', 'exit', 'q', 'simpleinfointernal', 'clear']
 engine_tokens = ['dump', 'plot', 'copy', 'csv']
-data_tokens = ['estimate', 'spent', 'original', 'burn']
+data_tokens = ['estimate', 'spent', 'original', 'burn', 'succeed', 'created', 'wip']
 dv_tokens = ['dv']
 trend_tokens = ['trends']
 filter_tokens = ['for', 'exclude']
@@ -112,7 +112,8 @@ help_str = ("General control commands:\n"
             "Data commands:\n"
             "[exporter] [data] [dv] [trends] [for categories] [exclude categories] [at|from|to period]\n"
             "  exporter: dump|plot|copy - how to output, default is previous or 'dump'\n"
-            "  data: estimate|spent|original|burn - what to output, default is previous or 'estimate'\n"
+            "data: estimate|spent|original|burn|created|succeed|wip - what to output, default is previous or "
+            "'estimate'\n"
             "  dv: type 'dv' to make data derivative by time scale, default No\n"
             "  trends: type 'trends' to calculate linear regressions, default No\n"
             "  for: list of data categories to sort (tags, queues, etc), type info to show categories\n"

@@ -2,3 +2,5 @@
 /source/*.log
 /source/expendo_cache/
 /source/cache/
+/source/build/
+/source/dist/

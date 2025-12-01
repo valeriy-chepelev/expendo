@@ -8,6 +8,7 @@ from alive_progress import alive_bar
 from exporters import dump, plot, csv
 from root_finder import TreeCache
 from colorama import init as init_color
+from colorama import Fore
 
 
 def export_data(engine, data, segments=None, nom_velocity=8.0):
@@ -69,6 +70,15 @@ def main():
     # Boot options from ini
 
     cmd_parser.options.set_values(**ini_args)
+
+    # Ask a query if not specified in cl args
+
+    if cl_args.query is None:
+        print(f'Default query: {Fore.LIGHTCYAN_EX}{cmd_parser.options.query}{Fore.RESET}')
+        print('Enter new query or nothing to default.')
+        cl_args.query = input('>')
+        if cl_args.query == '':
+            cl_args.query = cmd_parser.options.query
 
     # Boot options from cl args
 
