@@ -1,4 +1,5 @@
 import logging
+from yandex_tracker_client.exceptions import Forbidden
 
 
 class TreeCache:
@@ -16,10 +17,13 @@ class TreeCache:
     def add(self, item):
         stack = [item.key]  # Stack of items chain from 'item'
         s = None
-        while ((p := item.parent) is not None and
-               (s := self.root(item.key)) is None):  # iterate wile we found original parent or already scanned item
-            stack.append(item.key)  # add item data to stack
-            item = p  # move to a parent
+        try:
+            while ((p := item.parent) is not None and
+                   (s := self.root(item.key)) is None):  # iterate wile we found original parent or already scanned item
+                stack.append(item.key)  # add item data to stack
+                item = p  # move to a parent
+        except Forbidden:
+            s = ('0', 'NoEpic')  # Fix crash if access to parent forbidden
         # add stack to scanned list with root data from already scanned item or from original parent
         if s is None:
             s = (item.key, item.summary) if item.type.key == 'epic' else ('0', 'NoEpic')

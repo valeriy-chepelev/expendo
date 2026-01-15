@@ -88,7 +88,11 @@ def main():
 
     print('Connecting to Tracker...')
 
-    client = TrackerClient(cmd_parser.options.token, cmd_parser.options.org)
+    if len(cmd_parser.options.org) < 15:  # Yes, a magic number! cloud_org_id usually have length 20
+        client = TrackerClient(token=cmd_parser.options.token, org_id=cmd_parser.options.org)
+    else:
+        client = TrackerClient(token=cmd_parser.options.token, cloud_org_id=cmd_parser.options.org)
+
     if client.myself is None:
         raise Exception('Unable to connect Yandex Tracker.')
 

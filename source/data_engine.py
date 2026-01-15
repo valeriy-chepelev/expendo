@@ -230,8 +230,50 @@ def _calculator(data_kind, issues, date):
 
 
 # ===================================================
+#            Advanced Data Processing Procedures
+# ===================================================
+#  extract issue's keys and values according to a history changes:
+#   keys_by_spent
+#   keys_by_estimate
+#   keys_by_original
+#   keys_by_burned
+#   keys_by_succeed
+#   keys_by_created
+#   keys_by_wip
+#  common signature:
+#   f(issues, start, end, threshold=0) -> sorted by value [(key, value)]
+# ===================================================
+
+def keys_by_created(issues, start, end, threshold=0):
+    return [(issue.key, issue_created) for issue in issues
+            if (issue_created := issue_original(issue).created) > start
+            and (issue_created <= end)].sort(key=lambda x: x[1])
+
+
+def keys_by_succeed(issues, start, end, threshold=0):
+    return [(issue.key, e.end) for issue in issues
+            if (e := issue_original(issue)).valuable and e.finished
+            and e.end > start
+            and (e.end <= end)].sort(key=lambda x: x[1])
+
+
+def keys_by_spent(issues, start, end, threshold=0):
+    return [(issue.key, val) for issue in issues
+            if (val := next((s['value'] for s in issue_times(issue)
+                             if s['kind'] == 'spent' and
+                             s['date'].date() <= end), 0) -
+                       next((s['value'] for s in issue_times(issue)
+                             if s['kind'] == 'spent' and
+                             s['date'].date() <= start), 0)) > threshold].sort(key=lambda x: x[1])
+
+
+def keys_by_estimate(issues, start, end, threshold=0):
+    pass
+
+# ===================================================
 #             Data Manager Class
 # ===================================================
+
 
 POSITIVE = 1.0
 NEGATIVE = -1.0
@@ -513,12 +555,20 @@ class DataManager:
         if len(categories) == 0:
             _, issues = self._auto_filter('total', exclusions)
             self._data.update({'TOTAL': [_calculator(data_kind, issues, date) for date in self._dates]})
-        # diff
+        # dv point-to-point
         if dv:
             for key, values in self._data.items():
                 for i in range(len(values) - 1, 0, -1):  # start:stop:step, use reverse order
                     values[i] -= values[i - 1]
                 values[0] = values[1] if len(values) > 1 else 0
+        """        # draft option: dv end-to-start 
+        if False:
+            for key, values in self._data.items():
+                diff = values[-1] - values[0]
+                for i in range(len(values) // 2 + 1):
+                    values[0] = 0
+                for i in range(len(values) // 2 + 1, len(values) - 1):
+                    values[i] = diff"""
         # additional data
         self._data.update({'__date': self._dates,
                            '__kind': data_kind,
