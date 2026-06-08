@@ -80,6 +80,8 @@ class ExpendoArgumentParser(argparse.ArgumentParser):
 #                      CLI commands parser
 # ---------------------------------------------------------
 
+# TODO: delete "exclude" token, add "define" token for polish-defined categories,
+# TODO: also delete epics, make someting like "subs"
 
 set_tokens = ['mode', 'length', 'base', 'period', 'regression', 'factor', 'velocity']
 ctrl_tokens = ['info', 'help', '?', 'h', 'quit', 'exit', 'q', 'simpleinfointernal', 'clear']
