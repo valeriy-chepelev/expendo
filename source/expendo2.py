@@ -98,7 +98,7 @@ def main():
 
     # Get Tracker issues
 
-    print(f'Executing query "{cmd_parser.options.query}"...')
+    print(f'Executing query {Fore.LIGHTCYAN_EX}"{cmd_parser.options.query}"{Fore.RESET}...')
 
     if cmd_parser.options.query == '':
         raise Exception('Empty issues query.')
