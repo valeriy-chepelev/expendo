@@ -11,9 +11,43 @@ from types import SimpleNamespace
 from prettytable import PrettyTable
 from segmentation import calculate_lambda, bottom_up_segmentation
 from natsort import natsorted
+import functools
+import time
+from yandex_tracker_client.exceptions import TrackerServerError
 
 _future_date = dt.datetime.now(dt.timezone.utc) + relativedelta(years=3)
 TODAY = dt.datetime.now(dt.timezone.utc).date()  # Today, actually
+
+
+def retry_on_exception(exception=Exception, retries=3, delay=1):
+    """
+    Декоратор для повторных попыток выполнения функции при возникновении указанного исключения.
+    ai-generated
+
+    Параметры:
+        exception : класс исключения (или кортеж классов), которые нужно перехватывать.
+        retries   : максимальное количество попыток (включая первый вызов).
+        delay     : пауза в секундах между попытками.
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(1, retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except exception as e:
+                    last_exception = e
+                    # print(f"Попытка {attempt}/{retries} завершилась ошибкой: {e}. "
+                    #       f"Повтор через {delay} сек...")
+                    time.sleep(delay)
+            # Все попытки исчерпаны, выбрасываем последнее пойманное исключение
+            raise last_exception
+
+        return wrapper
+
+    return decorator
 
 
 # ===================================================
@@ -49,6 +83,7 @@ def _iso_hrs(s):
 
 
 @lru_cache(maxsize=None)  # Caching access to YT
+@retry_on_exception(TrackerServerError, 5, 3)
 def issue_times(issue):
     """ Return reverse-sorted by time list of issue spends, estimates, status and resolution changes"""
     sp = [{'date': dt.datetime.strptime(log.updatedAt, '%Y-%m-%dT%H:%M:%S.%f%z'),
@@ -62,6 +97,7 @@ def issue_times(issue):
 
 
 @lru_cache(maxsize=None)  # Caching calculations and YT access
+@retry_on_exception(TrackerServerError, 5, 3)
 def issue_original(issue):
     """Return start, end and initial estimate value at the issue start moment.
     If unable to detect start or end - return future dates."""
@@ -98,24 +134,28 @@ def issue_original(issue):
 
 
 @lru_cache(maxsize=None)  # Caching access to YT
+@retry_on_exception(TrackerServerError, 5, 3)
 def _tags(issue):
     """ Return one issue tags """
     return list(issue.tags)
 
 
 @lru_cache(maxsize=None)  # Caching access to YT
+@retry_on_exception(TrackerServerError, 5, 3)
 def _queue(issue):
     """ Return one issue queues """
     return issue.queue.key
 
 
 @lru_cache(maxsize=None)  # Caching access to YT
+@retry_on_exception(TrackerServerError, 5, 3)
 def _components(issue):
     """ Return one issue components """
     return [comp.name for comp in issue.components]
 
 
 @lru_cache(maxsize=None)
+@retry_on_exception(TrackerServerError, 5, 3)
 def _project(issue):
     """ Return one issue main project name"""
     return p.display if (p := issue.project) is not None else 'NoProject'
